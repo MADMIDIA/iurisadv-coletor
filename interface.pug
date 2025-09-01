@@ -1,37 +1,29 @@
-doctype html
-html(lang="pt-BR")
-  head
-    meta(charset="UTF-8")
-    meta(name="viewport", content="width=device-width, initial-scale=1.0")
-    title iurisadv.ai - Pesquisa Jurisprudencial
-    style.
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <title>iurisadv.ai - Pesquisa Jurisprudencial</title>
+    <style>
       body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f7fc; color: #333; }
       .header { background-color: #fff; padding: 1em 2em; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
       .container { max-width: 900px; margin: auto; padding: 2em; }
       h1 { color: #2c3e50; font-size: 1.5em; }
-      
-      /* Formulário Unificado */
-      form { background-color: #fff; padding: 1.5em; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-
       .search-container { text-align: center; margin-bottom: 1em; }
+      form { display: block; background-color: #fff; padding: 1.5em; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
       .search-bar { display: flex; max-width: 800px; margin: auto; gap: 10px; }
       .search-bar input { flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }
       .search-bar button { padding: 12px 20px; border: none; background-color: #3498db; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; }
       .search-bar button:hover { background-color: #2980b9; }
-
       .advanced-search-toggle { text-align: right; max-width: 800px; margin: 1em auto; }
       .advanced-search-toggle label { cursor: pointer; user-select: none; color: #3498db; }
       #toggle-filters { margin-right: 5px; }
-
       .filters-box { border-top: 1px solid #eee; padding-top: 1.5em; margin-top: 1.5em; display: none; }
       .filters-box.visible { display: block; }
-      .filters-box h2 { margin-top: 0; color: #2c3e50; font-size: 1.2em; text-align: left; }
+      .filters-box h2 { margin-top: 0; color: #2c3e50; }
       .filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; }
       .filters-box .form-group { margin-bottom: 1em; text-align: left; }
       .filters-box label { display: block; margin-bottom: 0.5em; font-weight: bold; color: #566573; }
       .filters-box input, .filters-box select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;}
       .filters-box .year-group { display: flex; gap: 10px; }
-
       .content-wrapper { display: flex; gap: 2em; align-items: flex-start; margin-top: 2em;}
       .results-column { flex-grow: 1; }
       .result-item { background-color: #fff; border: 1px solid #e1e8ed; border-radius: 8px; margin-bottom: 1.5em; padding: 1.5em; }
@@ -40,116 +32,126 @@ html(lang="pt-BR")
       .result-item dl { margin: 1em 0 0 0; }
       .result-item dt { font-weight: bold; color: #566573; float: left; width: 90px; clear: left; }
       .result-item dd { margin-left: 100px; margin-bottom: 0.5em; }
-
       .pagination { text-align: center; margin: 2em 0; display: flex; justify-content: center; align-items: center; }
       .pagination a, .pagination span { margin: 0 2px; padding: 8px 12px; border: 1px solid #ddd; text-decoration: none; color: #3498db; border-radius: 4px; }
       .pagination a:hover { background-color: #f8f9fa; }
       .pagination span.current { background-color: #3498db; color: white; border-color: #3498db; }
       .pagination span.dots { border: none; padding: 8px 4px;}
-
       .message-box { background-color: #fff; border: 1px solid #e1e8ed; border-radius: 8px; padding: 1.5em; margin-bottom: 1.5em; }
       .message-box.import { background-color: #fff5e6; border-color: #ffcc80; }
       .message-box.error { background-color: #ffebee; border-color: #ef5350; }
       .results-info { color: #666; margin-bottom: 1em; }
-  body
-    .header
-      h1 iurisadv.ai
-    .container
-      //- Formulário único para busca e filtros. Essencial para o funcionamento.
-      form(action="/", method="GET")
-        .search-container
-          .search-bar
-            input(type="text", name="q", placeholder="Digite sua busca...", value=query)
-            button(type="submit") Pesquisar
-          .advanced-search-toggle
-            input#toggle-filters(type="checkbox", onchange="toggleFilters()", checked=show_filters == 'true')
-            label(for="toggle-filters") Pesquisa Avançada
+    </style>
+</head>
+<body>
+    <div class="header"><h1>iurisadv.ai</h1></div>
+    <div class="container">
+        <!-- FORMULÁRIO ÚNICO PARA BUSCA E FILTROS. ESSA É A CORREÇÃO. -->
+        <form action="/" method="GET">
+            <div class="search-container">
+                <div class="search-bar">
+                    <input type="text" name="q" placeholder="Digite sua busca..." value="{{ query }}">
+                    <button type="submit">Pesquisar</button>
+                </div>
+                <div class="advanced-search-toggle">
+                    <input type="checkbox" id="toggle-filters" onchange="toggleFilters()" {% if show_filters == 'true' %}checked{% endif %}>
+                    <label for="toggle-filters">Pesquisa Avançada</label>
+                </div>
+            </div>
 
-        .filters-box#filters-box
-          h2 Filtros Avançados
-          .filter-grid
-            .form-group
-              label(for="sort") Ordenar por
-              select#sort(name="sort")
-                option(value="relevance", selected=sort_order == 'relevance') Relevância
-                option(value="date_desc", selected=sort_order == 'date_desc') Mais Recentes
-                option(value="date_asc", selected=sort_order == 'date_asc') Mais Antigos
-            .form-group
-              label Ano de Publicação
-              .year-group
-                input(type="number", name="year_min", placeholder="De", value=year_min, min="1900", max="2030")
-                input(type="number", name="year_max", placeholder="Até", value=year_max, min="1900", max="2030")
-          
-          input(type="hidden", name="show_filters", value="true")
-          button(type="submit", style="width: 100%; padding: 12px; border: none; background-color: #27ae60; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; margin-top: 1em;") Aplicar Filtros
+            <div class="filters-box" id="filters-box">
+                <h2>Filtros Avançados</h2>
+                <input type="hidden" name="show_filters" value="true">
+                <div class="filter-grid">
+                    <div class="form-group">
+                        <label for="sort">Ordenar por</label>
+                        <select name="sort" id="sort">
+                            <option value="relevance" {% if sort_order == 'relevance' %}selected{% endif %}>Relevância</option>
+                            <option value="date_desc" {% if sort_order == 'date_desc' %}selected{% endif %}>Mais Recentes</option>
+                            <option value="date_asc" {% if sort_order == 'date_asc' %}selected{% endif %}>Mais Antigos</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Ano de Publicação</label>
+                        <div class="year-group">
+                            <input type="number" name="year_min" placeholder="De" value="{{ year_min }}" min="1900" max="2030">
+                            <input type="number" name="year_max" placeholder="Até" value="{{ year_max }}" min="1900" max="2030">
+                        </div>
+                    </div>
+                </div>
+                <button type="submit" style="width: 100%; padding: 12px; border: none; background-color: #27ae60; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; margin-top: 1em;">Aplicar Filtros</button>
+            </div>
+        </form>
 
-      .content-wrapper
-        .results-column
-          if needs_import
-            .message-box.import
-              p
-                strong O banco de dados está vazio.
-              a(href=url_for('import_data_from_json')) Importar Dados de Teste (Arquivo Local)
-          else if error
-            .message-box.error
-              p= error
-          else if trigger_scrape
-            .message-box.import
-              p
-                strong Nenhum resultado encontrado para "#{query}".
-              a(href=url_for('importar_lexml', q=query)) Buscar e importar do LexML (a partir de 2015)
-          else if total is defined and total is not none and not is_homepage
-            .results-info
-              p Exibindo página #{current_page} de #{total_pages} (#{total} resultados no total).
+        <div class="content-wrapper">
+            <div class="results-column">
+                {% if needs_import %}
+                    <div class="message-box import">
+                        <p><strong>O banco de dados está vazio.</strong></p>
+                        <a href="{{ url_for('import_data_from_json') }}">Importar Dados de Teste (Arquivo Local)</a>
+                    </div>
+                {% elif error %}
+                     <div class="message-box error"><p>{{ error }}</p></div>
+                {% elif trigger_scrape %}
+                    <div class="message-box import">
+                         <p><strong>Nenhum resultado encontrado para "{{ query }}".</strong></p>
+                         <a href="{{ url_for('importar_lexml', q=query) }}">Buscar e importar do LexML (a partir de 2015)</a>
+                    </div>
+                {% elif total is defined and total is not none and not is_homepage %}
+                     <div class="results-info"><p>Exibindo página {{ current_page }} de {{ total_pages }} ({{ total }} resultados no total).</p></div>
+                {% endif %}
 
-          if is_homepage
-            h2 Jurisprudências Mais Recentes
-          
-          each result in results
-            .result-item
-              h3
-                a(href=result.link, target="_blank")= result.titulo
-              dl
-                if result.autoridade
-                  dt Autoridade:
-                  dd= result.autoridade
-                if result.data or result.data_julgamento
-                  dt Data:
-                  dd= result.data or result.data_julgamento
-                if result.ementa
-                  dt Ementa:
-                  dd= result.ementa
-                if result.id
-                  dt URN:
-                  dd= result.id
-                if result.fonte
-                  dt Fonte:
-                  dd= result.fonte
+                {% if is_homepage %}
+                    <h2>Jurisprudências Mais Recentes</h2>
+                {% endif %}
+                
+                {% for result in results %}
+                    <div class="result-item">
+                        <h3><a href="{{ result.link }}" target="_blank">{{ result.titulo }}</a></h3>
+                        <dl>
+                            {% if result.autoridade %}<dt>Autoridade:</dt><dd>{{ result.autoridade }}</dd>{% endif %}
+                            {% if result.data or result.data_julgamento %}<dt>Data:</dt><dd>{{ result.data or result.data_julgamento }}</dd>{% endif %}
+                            {% if result.ementa %}<dt>Ementa:</dt><dd>{{ result.ementa }}</dd>{% endif %}
+                            {% if result.id %}<dt>URN:</dt><dd>{{ result.id }}</dd>{% endif %}
+                            {% if result.fonte %}<dt>Fonte:</dt><dd>{{ result.fonte }}</dd>{% endif %}
+                        </dl>
+                    </div>
+                {% endfor %}
 
-          //- Paginação que usa os dados do app.py
-          if total_pages and total_pages > 1
-            .pagination
-              a(href=url_for('home', q=query, page=1, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters)) «
-              each page_num in page_numbers
-                if page_num == '...'
-                  span.dots ...
-                else if page_num == current_page
-                  span.current= page_num
-                else
-                  a(href=url_for('home', q=query, page=page_num, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters))= page_num
-              a(href=url_for('home', q=query, page=total_pages, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters)) »
-
-    script.
-      function toggleFilters() {
-        const filtersBox = document.getElementById('filters-box');
-        filtersBox.classList.toggle('visible');
-      }
-      // Garante que a caixa de filtros permaneça visível após a submissão
-      document.addEventListener('DOMContentLoaded', function() {
-        const urlParams = new URLSearchParams(window.location.search);
-        if (urlParams.get('show_filters') === 'true') {
-          document.getElementById('filters-box').classList.add('visible');
-          document.getElementById('toggle-filters').checked = true;
+                {% if total_pages and total_pages > 1 %}
+                <div class="pagination">
+                    <a href="{{ url_for('home', q=query, page=1, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">&laquo;</a>
+                    {% for page_num in page_numbers %}
+                        {% if page_num == '...' %}
+                            <span class="dots">...</span>
+                        {% elif page_num == current_page %}
+                            <span class="current">{{ page_num }}</span>
+                        {% else %}
+                            <a href="{{ url_for('home', q=query, page=page_num, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">{{ page_num }}</a>
+                        {% endif %}
+                    {% endfor %}
+                    <a href="{{ url_for('home', q=query, page=total_pages, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">&raquo;</a>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <script>
+        function toggleFilters() {
+            const filtersBox = document.getElementById('filters-box');
+            filtersBox.classList.toggle('visible');
         }
-      });
-
+        
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (urlParams.get('show_filters') === 'true' || 
+                urlParams.get('year_min') || 
+                urlParams.get('year_max') || 
+                (urlParams.get('sort') && urlParams.get('sort') !== 'relevance')) {
+                document.getElementById('filters-box').classList.add('visible');
+                document.getElementById('toggle-filters').checked = true;
+            }
+        });
+    </script>
+</body>
+</html>
