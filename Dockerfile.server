@@ -1,0 +1,15 @@
+# Dockerfile.server - VERSÃO FINAL E SIMPLIFICADA
+
+FROM docker.io/library/node:lts
+
+# Define o diretório de trabalho.
+WORKDIR /usr/src/app
+
+# Copia apenas os arquivos de dependências para otimizar o cache.
+COPY package*.json ./
+
+# Instala as dependências.
+RUN npm install
+
+# Copia o restante do código da aplicação.
+COPY . .
