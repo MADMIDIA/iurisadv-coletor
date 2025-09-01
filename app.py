@@ -1,4 +1,4 @@
-# app.py - VERSÃO ORIGINAL E FUNCIONAL COM CORREÇÃO CIRÚRGICA DO FILTRO
+# app.py - VERSÃO FINAL E DEFINITIVA COM BUSCA POR ANO
 
 import os
 import json
@@ -17,11 +17,12 @@ RESULTS_PER_PAGE = 10
 
 es = Elasticsearch("http://elasticsearch:9200")
 
+# 1. MAPEAMENTO ATUALIZADO: Adicionamos um campo 'ano_julgamento' para o filtro
 INDEX_MAPPING = {
     "mappings": {
         "properties": {
-            "data_julgamento": {"type": "date", "format": "yyyy-MM-dd||yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis", "ignore_malformed": True},
-            "data": {"type": "date", "format": "yyyy-MM-dd||yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis", "ignore_malformed": True},
+            "data_julgamento": {"type": "text"}, # Armazena a data original como texto para exibição
+            "ano_julgamento": {"type": "integer"}, # Novo campo numérico para o filtro de ano
             "fonte": {"type": "keyword"},
             "autoridade": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
             "classe": {"type": "keyword"},
@@ -35,27 +36,38 @@ INDEX_MAPPING = {
     "settings": {"index": {"number_of_shards": 1, "number_of_replicas": 0}}
 }
 
+def extract_year(date_str):
+    """Tenta extrair o ano de forma segura de uma string de data (DD/MM/YYYY ou YYYY-MM-DD)."""
+    if not date_str or len(date_str.strip()) < 4:
+        return None
+    date_str = date_str.strip()
+    try:
+        # Tenta extrair de DD/MM/YYYY
+        year = int(date_str[6:10])
+        if 1800 < year < 2100: return year
+    except (ValueError, IndexError):
+        pass
+    try:
+        # Tenta extrair de YYYY-MM-DD
+        year = int(date_str[0:4])
+        if 1800 < year < 2100: return year
+    except (ValueError, IndexError):
+        pass
+    print(f"AVISO: Ano não pôde ser extraído da string: '{date_str}'")
+    return None
+
 def create_index_if_not_exists():
-    """Cria o índice se não existir (lógica original)"""
+    """Cria o índice se não existir"""
     try:
         if not es.indices.exists(index=INDEX_NAME):
-            print(f"Índice '{INDEX_NAME}' não encontrado. Criando com o mapeamento correto...")
+            print(f"Índice '{INDEX_NAME}' não encontrado. Criando com o novo mapeamento...")
             es.indices.create(index=INDEX_NAME, body=INDEX_MAPPING)
             print(f"Índice '{INDEX_NAME}' criado com sucesso.")
         else:
             print(f"Índice '{INDEX_NAME}' já existe.")
     except Exception as e:
         print(f"Erro ao criar índice: {e}")
-        try:
-            if not es.indices.exists(index=INDEX_NAME):
-                es.indices.create(index=INDEX_NAME, ignore=400)
-        except Exception as inner_e:
-            print(f"Falha na tentativa de criar índice simples: {inner_e}")
 
-
-# =====================================================================================
-# TEMPLATE ORIGINAL COMPLETO - COM A ÚNICA CORREÇÃO NECESSÁRIA
-# =====================================================================================
 INTERFACE_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
@@ -105,7 +117,6 @@ INTERFACE_TEMPLATE = """
 <body>
     <div class="header"><h1>iurisadv.ai</h1></div>
     <div class="container">
-        <!-- A ÚNICA MUDANÇA ESTÁ AQUI: UM SÓ FORMULÁRIO ENVOLVENDO TUDO -->
         <form action="/" method="GET">
             <div class="search-container">
                 <div class="search-bar">
@@ -169,7 +180,7 @@ INTERFACE_TEMPLATE = """
                         <h3><a href="{{ result.link }}" target="_blank">{{ result.titulo }}</a></h3>
                         <dl>
                             {% if result.autoridade %}<dt>Autoridade:</dt><dd>{{ result.autoridade }}</dd>{% endif %}
-                            {% if result.data or result.data_julgamento %}<dt>Data:</dt><dd>{{ result.data or result.data_julgamento }}</dd>{% endif %}
+                            {% if result.data_julgamento %}<dt>Data:</dt><dd>{{ result.data_julgamento }}</dd>{% endif %}
                             {% if result.ementa %}<dt>Ementa:</dt><dd>{{ result.ementa }}</dd>{% endif %}
                             {% if result.id %}<dt>URN:</dt><dd>{{ result.id }}</dd>{% endif %}
                             {% if result.fonte %}<dt>Fonte:</dt><dd>{{ result.fonte }}</dd>{% endif %}
@@ -218,7 +229,7 @@ INTERFACE_TEMPLATE = """
 
 @app.route('/', endpoint='home')
 def home():
-    """Rota principal com pesquisa e filtros (lógica original)"""
+    """Rota principal com pesquisa e filtros, agora por ano."""
     try:
         query = request.args.get('q', '').strip()
         page = request.args.get('page', 1, type=int)
@@ -238,22 +249,27 @@ def home():
                 is_homepage=False, error=None, trigger_scrape=False
             )
 
+        # 2. LÓGICA DE FILTRO ATUALIZADA: Filtra pelo campo numérico 'ano_julgamento'
         filters_for_es = []
+        year_range_filter = {}
         if year_min and year_min.isdigit():
-            filters_for_es.append({"bool": {"should": [{"range": {"data_julgamento": {"gte": f"{year_min}-01-01"}}}, {"range": {"data": {"gte": f"{year_min}-01-01"}}}], "minimum_should_match": 1}})
+            year_range_filter["gte"] = int(year_min)
         if year_max and year_max.isdigit():
-            filters_for_es.append({"bool": {"should": [{"range": {"data_julgamento": {"lte": f"{year_max}-12-31"}}}, {"range": {"data": {"lte": f"{year_max}-12-31"}}}], "minimum_should_match": 1}})
+            year_range_filter["lte"] = int(year_max)
+        
+        if year_range_filter:
+            filters_for_es.append({"range": {"ano_julgamento": year_range_filter}})
 
         sort_query = []
         if sort_order == 'date_desc':
-            sort_query = [{"data_julgamento": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}, {"data": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}]
+            sort_query = [{"ano_julgamento": {"order": "desc", "missing": "_last"}}]
         elif sort_order == 'date_asc':
-            sort_query = [{"data_julgamento": {"order": "asc", "unmapped_type": "date", "missing": "_last"}}, {"data": {"order": "asc", "unmapped_type": "date", "missing": "_last"}}]
+            sort_query = [{"ano_julgamento": {"order": "asc", "missing": "_last"}}]
         
         is_homepage = not query and not year_min and not year_max and sort_order == 'relevance'
         
         if is_homepage:
-            search_body = {"query": {"match_all": {}}, "from": 0, "size": 3, "sort": [{"data_julgamento": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}, {"data": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}]}
+            search_body = {"query": {"match_all": {}}, "from": 0, "size": 3, "sort": [{"ano_julgamento": {"order": "desc", "missing": "_last"}}]}
         else:
             search_body = {"from": from_value, "size": RESULTS_PER_PAGE}
             if query:
@@ -268,7 +284,8 @@ def home():
                 search_body["query"] = {"match_all": {}}
             if sort_query:
                 search_body["sort"] = sort_query
-
+        
+        print(f"CONSULTA ELASTICSEARCH:\n{json.dumps(search_body, indent=2, ensure_ascii=False)}\n")
         res = es.search(index=INDEX_NAME, body=search_body)
         
         results = []
@@ -276,8 +293,9 @@ def home():
             doc = hit['_source']
             results.append({
                 'titulo': doc.get('titulo', 'Sem título'), 'link': doc.get('link', '#'),
-                'autoridade': doc.get('autoridade', ''), 'data': doc.get('data', ''),
-                'data_julgamento': doc.get('data_julgamento', ''), 'ementa': doc.get('ementa', ''),
+                'autoridade': doc.get('autoridade', ''),
+                'data_julgamento': doc.get('data_julgamento', ''), # Exibe a data completa original
+                'ementa': doc.get('ementa', ''),
                 'id': doc.get('id', ''), 'fonte': doc.get('fonte', '')
             })
         
@@ -310,7 +328,7 @@ def home():
         )
 
 def get_pagination_range(current_page, total_pages, window=2):
-    """Gera lista de páginas para paginação com elipses (lógica original)"""
+    """Gera lista de páginas para paginação com elipses"""
     if total_pages is None or total_pages <= 1:
         return []
     if total_pages <= 7:
@@ -331,7 +349,7 @@ def get_pagination_range(current_page, total_pages, window=2):
 
 @app.route('/import-json')
 def import_data_from_json():
-    """Importa dados do arquivo JSON local (lógica original)"""
+    """Importa dados do arquivo JSON local com extração de ano"""
     try:
         create_index_if_not_exists()
         filepath = os.path.join('data', 'jurisprudencias.json')
@@ -343,11 +361,17 @@ def import_data_from_json():
         for doc in jurisprudencias:
             doc_id = doc.get("numero_processo")
             if not doc_id: continue
+            
+            # 3. LÓGICA DE IMPORTAÇÃO ATUALIZADA: Extrai o ano e o salva
+            original_date = doc.get("data_julgamento")
+            
             doc_to_index = {
                 "id": doc_id, "titulo": doc.get("classe", "") + " - " + doc.get("assunto", ""),
                 "classe": doc.get("classe"), "assunto": doc.get("assunto"),
                 "magistrado": doc.get("magistrado"), "comarca": doc.get("comarca"),
-                "data_julgamento": doc.get("data_julgamento"), "ementa": doc.get("ementa"),
+                "data_julgamento": original_date, # Salva a data original para exibição
+                "ano_julgamento": extract_year(original_date), # Salva o ano extraído
+                "ementa": doc.get("ementa"),
                 "texto_decisao": doc.get("inteiro_teor"), "fonte": "TJSC (Arquivo JSON)",
                 "link": "#", "autoridade": doc.get("magistrado", "")
             }
@@ -363,7 +387,7 @@ def import_data_from_json():
 
 @app.route('/importar-lexml')
 def importar_lexml():
-    """Importa dados do LexML via scraping (lógica original)"""
+    """Importa dados do LexML via scraping com extração de ano"""
     termo_de_busca = request.args.get('q')
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
@@ -389,14 +413,18 @@ def importar_lexml():
                     doc_id = urn_tag.find_next_sibling('td').text.strip()
                     titulo_link = titulo_tag.find_next_sibling('td').find('a')
                     if not (doc_id and titulo_link): continue
-                    ementa_tag = item.find(lambda t: t.name == 'td' and 'Ementa' in t.text)
+                    
                     data_tag = item.find(lambda t: t.name == 'td' and 'Data' in t.text)
                     autoridade_tag = item.find(lambda t: t.name == 'td' and 'Autoridade' in t.text)
+                    ementa_tag = item.find(lambda t: t.name == 'td' and 'Ementa' in t.text)
+                    
+                    original_date_str = data_tag.find_next_sibling('td').text.strip() if data_tag else ''
+
                     documento = {
                         "id": doc_id, "titulo": titulo_link.text.strip(),
                         "ementa": ementa_tag.find_next_sibling('td').text.strip() if ementa_tag else '',
-                        "data": data_tag.find_next_sibling('td').text.strip() if data_tag else '',
-                        "data_julgamento": data_tag.find_next_sibling('td').text.strip() if data_tag else '',
+                        "data_julgamento": original_date_str, # Salva a data original
+                        "ano_julgamento": extract_year(original_date_str), # Salva o ano extraído
                         "autoridade": autoridade_tag.find_next_sibling('td').text.strip() if autoridade_tag else '',
                         "link": f"https://www.lexml.gov.br{titulo_link['href']}", "fonte": "LexML",
                         "texto_decisao": "", "classe": "", "assunto": ""
@@ -437,4 +465,3 @@ if __name__ == '__main__':
                 print("Não foi possível conectar ao Elasticsearch. A aplicação pode não funcionar.")
     
     app.run(host='0.0.0.0', port=3000, debug=True)
-
