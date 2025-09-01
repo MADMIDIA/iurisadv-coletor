@@ -1,5 +1,4 @@
 # app.py - VERSÃO CORRIGIDA COM FILTROS FUNCIONAIS E BUGS RESOLVIDOS
-
 import os
 import json
 import time
@@ -10,8 +9,13 @@ from elasticsearch import Elasticsearch
 from math import ceil
 from datetime import datetime
 import traceback
+import pypugjs
 
-app = Flask(__name__)
+# 1. INICIALIZAÇÃO CORRETA DO FLASK
+#    template_folder='.' informa ao Flask para procurar o 'interface.pug' no diretório raiz.
+app = Flask(__name__, template_folder='.')
+app.jinja_env.add_extension('pypugjs.ext.jinja.PyPugJSExtension')
+
 INDEX_NAME = 'jurisprudencia'
 RESULTS_PER_PAGE = 10
 
@@ -52,19 +56,17 @@ def create_index_if_not_exists():
     """Cria o índice se não existir"""
     try:
         if not es.indices.exists(index=INDEX_NAME):
-            print(f"Índice '{INDEX_NAME}' não encontrado. Criando com o mapeamento correto...")
-            es.indices.create(index=INDEX_NAME, body=INDEX_MAPPING)
+            print(f"Índice '{INDEX_NAME}' não encontrado. Criando...")
+            # Usando um mapeamento simplificado para evitar problemas,
+            # já que seus indexadores .js lidam com a estrutura.
+            es.indices.create(index=INDEX_NAME, ignore=400)
             print(f"Índice '{INDEX_NAME}' criado com sucesso.")
         else:
             print(f"Índice '{INDEX_NAME}' já existe.")
     except Exception as e:
         print(f"Erro ao criar índice: {e}")
-        # Tentar criar sem o mapeamento complexo se houver erro
-        try:
-            es.indices.create(index=INDEX_NAME, ignore=400)
-        except:
-            pass
 
+# 2. FUNÇÃO 'HOME' ROBUSTA
 @app.route('/', endpoint='home')
 def home():
     """Rota principal com pesquisa e filtros, refatorada para maior robustez."""
@@ -130,6 +132,7 @@ def home():
             if context['page'] > context['total_pages'] and context['total_pages'] > 0:
                 context['current_page'] = context['total_pages']
             
+            # A chamada para a função que estava faltando
             context['page_numbers'] = get_pagination_range(context['current_page'], context['total_pages'])
             if context['query'] and context['total'] == 0 and not context['is_homepage']:
                 context['trigger_scrape'] = True
@@ -140,40 +143,6 @@ def home():
         context['error'] = f"Ocorreu um erro ao processar a busca: {str(e)}"
 
     return render_template('interface.pug', **context)
-
-# ... (o resto do seu código, a função get_pagination_range, etc., permanece o mesmo) ...
-
-def get_pagination_range(current_page, total_pages, window=2):
-    """Gera lista de páginas para paginação com elipses"""
-    if total_pages <= 7:
-        return list(range(1, total_pages + 1))
-    
-    pages = []
-    
-    # Sempre mostrar primeira página
-    pages.append(1)
-    
-    # Adicionar elipse se necessário
-    if current_page > window + 2:
-        pages.append('...')
-    
-    # Páginas ao redor da atual
-    start = max(2, current_page - window)
-    end = min(total_pages - 1, current_page + window)
-    
-    for i in range(start, end + 1):
-        if i not in pages:
-            pages.append(i)
-    
-    # Adicionar elipse se necessário
-    if current_page < total_pages - (window + 1):
-        pages.append('...')
-    
-    # Sempre mostrar última página
-    if total_pages not in pages:
-        pages.append(total_pages)
-    
-    return pages
 
 @app.route('/import-json')
 def import_data_from_json():
@@ -324,21 +293,18 @@ def importar_lexml():
         traceback.print_exc()
         return f"Erro durante a coleta: {e}", 500
 
+# 3. A FUNÇÃO AUXILIAR NECESSÁRIA
 def get_pagination_range(current_page, total_pages, window=2):
     """Gera lista de páginas para paginação com elipses"""
+    if total_pages is None or total_pages <= 1:
+        return []
     if total_pages <= 7:
         return list(range(1, total_pages + 1))
     
-    pages = []
-    
-    # Sempre mostrar primeira página
-    pages.append(1)
-    
-    # Adicionar elipse se necessário
+    pages = [1]
     if current_page > window + 2:
         pages.append('...')
     
-    # Páginas ao redor da atual
     start = max(2, current_page - window)
     end = min(total_pages - 1, current_page + window)
     
@@ -346,11 +312,9 @@ def get_pagination_range(current_page, total_pages, window=2):
         if i not in pages:
             pages.append(i)
     
-    # Adicionar elipse se necessário
     if current_page < total_pages - (window + 1):
         pages.append('...')
     
-    # Sempre mostrar última página
     if total_pages not in pages:
         pages.append(total_pages)
     
