@@ -1,4 +1,4 @@
-# app.py - VERSÃO ORIGINAL COM CORREÇÃO CIRÚRGICA DO FILTRO
+# app.py - VERSÃO ORIGINAL E FUNCIONAL COM CORREÇÃO CIRÚRGICA DO FILTRO
 
 import os
 import json
@@ -15,22 +15,13 @@ app = Flask(__name__)
 INDEX_NAME = 'jurisprudencia'
 RESULTS_PER_PAGE = 10
 
-# Usando a conexão correta para o Docker
 es = Elasticsearch("http://elasticsearch:9200")
 
 INDEX_MAPPING = {
     "mappings": {
         "properties": {
-            "data_julgamento": {
-                "type": "date",
-                "format": "yyyy-MM-dd||yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis",
-                "ignore_malformed": True
-            },
-            "data": {
-                "type": "date",
-                "format": "yyyy-MM-dd||yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis",
-                "ignore_malformed": True
-            },
+            "data_julgamento": {"type": "date", "format": "yyyy-MM-dd||yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis", "ignore_malformed": True},
+            "data": {"type": "date", "format": "yyyy-MM-dd||yyyy-MM-dd HH:mm:ss||strict_date_optional_time||epoch_millis", "ignore_malformed": True},
             "fonte": {"type": "keyword"},
             "autoridade": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
             "classe": {"type": "keyword"},
@@ -41,16 +32,11 @@ INDEX_MAPPING = {
             "id": {"type": "keyword"}
         }
     },
-    "settings": {
-        "index": {
-            "number_of_shards": 1,
-            "number_of_replicas": 0
-        }
-    }
+    "settings": {"index": {"number_of_shards": 1, "number_of_replicas": 0}}
 }
 
 def create_index_if_not_exists():
-    """Cria o índice se não existir"""
+    """Cria o índice se não existir (lógica original)"""
     try:
         if not es.indices.exists(index=INDEX_NAME):
             print(f"Índice '{INDEX_NAME}' não encontrado. Criando com o mapeamento correto...")
@@ -68,8 +54,7 @@ def create_index_if_not_exists():
 
 
 # =====================================================================================
-# INÍCIO DA CORREÇÃO CIRÚRGICA DENTRO DO TEMPLATE ORIGINAL
-# A única mudança é a unificação dos dois <form> em um só.
+# TEMPLATE ORIGINAL COMPLETO - COM A ÚNICA CORREÇÃO NECESSÁRIA
 # =====================================================================================
 INTERFACE_TEMPLATE = """
 <!DOCTYPE html>
@@ -82,7 +67,6 @@ INTERFACE_TEMPLATE = """
       .container { max-width: 900px; margin: auto; padding: 2em; }
       h1 { color: #2c3e50; font-size: 1.5em; }
       .search-container { text-align: center; margin-bottom: 1em; }
-      /* MODIFICAÇÃO: A tag form agora envolve tudo */
       form { display: block; }
       .search-bar { display: flex; max-width: 800px; margin: auto; gap: 10px; }
       .search-bar input { flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }
@@ -121,7 +105,7 @@ INTERFACE_TEMPLATE = """
 <body>
     <div class="header"><h1>iurisadv.ai</h1></div>
     <div class="container">
-        <!-- MODIFICAÇÃO: UM ÚNICO FORMULÁRIO COMEÇA AQUI -->
+        <!-- A ÚNICA MUDANÇA ESTÁ AQUI: UM SÓ FORMULÁRIO ENVOLVENDO TUDO -->
         <form action="/" method="GET">
             <div class="search-container">
                 <div class="search-bar">
@@ -129,22 +113,21 @@ INTERFACE_TEMPLATE = """
                     <button type="submit">Pesquisar</button>
                 </div>
                 <div class="advanced-search-toggle">
-                    <input type="checkbox" id="toggle-filters" onchange="toggleFilters()">
+                    <input type="checkbox" id="toggle-filters" onchange="toggleFilters()" {% if show_filters == 'true' %}checked{% endif %}>
                     <label for="toggle-filters">Pesquisa Avançada</label>
                 </div>
             </div>
 
             <div class="filters-box" id="filters-box">
                 <h2>Filtros Avançados</h2>
-                <!-- MODIFICAÇÃO: A tag <form> que existia aqui foi REMOVIDA -->
                 <input type="hidden" name="show_filters" value="true">
                 <div class="filter-grid">
                     <div class="form-group">
                         <label for="sort">Ordenar por</label>
                         <select name="sort" id="sort">
-                            <option value="relevance" {{ 'selected' if sort_order == 'relevance' else '' }}>Relevância</option>
-                            <option value="date_desc" {{ 'selected' if sort_order == 'date_desc' else '' }}>Mais Recentes</option>
-                            <option value="date_asc" {{ 'selected' if sort_order == 'date_asc' else '' }}>Mais Antigos</option>
+                            <option value="relevance" {% if sort_order == 'relevance' %}selected{% endif %}>Relevância</option>
+                            <option value="date_desc" {% if sort_order == 'date_desc' %}selected{% endif %}>Mais Recentes</option>
+                            <option value="date_asc" {% if sort_order == 'date_asc' %}selected{% endif %}>Mais Antigos</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -157,7 +140,7 @@ INTERFACE_TEMPLATE = """
                 </div>
                 <button type="submit" style="width: 100%; padding: 12px; border: none; background-color: #27ae60; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; margin-top: 1em;">Aplicar Filtros</button>
             </div>
-        </form> <!-- MODIFICAÇÃO: O FORMULÁRIO ÚNICO TERMINA AQUI -->
+        </form>
 
         <div class="content-wrapper">
             <div class="results-column">
@@ -173,7 +156,7 @@ INTERFACE_TEMPLATE = """
                          <p><strong>Nenhum resultado encontrado para "{{ query }}".</strong></p>
                          <a href="{{ url_for('importar_lexml', q=query) }}">Buscar e importar do LexML (a partir de 2015)</a>
                     </div>
-                {% elif total is defined and total is not none %}
+                {% elif total is defined and total is not none and not is_homepage %}
                      <div class="results-info"><p>Exibindo página {{ current_page }} de {{ total_pages }} ({{ total }} resultados no total).</p></div>
                 {% endif %}
 
@@ -233,16 +216,10 @@ INTERFACE_TEMPLATE = """
 </html>
 """
 
-# =====================================================================================
-# FIM DA CORREÇÃO CIRÚRGICA
-# O restante do arquivo é o seu código original, 100% preservado.
-# =====================================================================================
-
 @app.route('/', endpoint='home')
 def home():
-    """Rota principal com pesquisa e filtros"""
+    """Rota principal com pesquisa e filtros (lógica original)"""
     try:
-        # Lógica original de captura de parâmetros
         query = request.args.get('q', '').strip()
         page = request.args.get('page', 1, type=int)
         sort_order = request.args.get('sort', 'relevance')
@@ -250,9 +227,7 @@ def home():
         year_max = request.args.get('year_max', '')
         show_filters = request.args.get('show_filters', 'false')
         
-        if page < 1:
-            page = 1
-            
+        if page < 1: page = 1
         from_value = (page - 1) * RESULTS_PER_PAGE
 
         if not es.indices.exists(index=INDEX_NAME):
@@ -263,14 +238,12 @@ def home():
                 is_homepage=False, error=None, trigger_scrape=False
             )
 
-        # Lógica original de construção de filtros
         filters_for_es = []
         if year_min and year_min.isdigit():
             filters_for_es.append({"bool": {"should": [{"range": {"data_julgamento": {"gte": f"{year_min}-01-01"}}}, {"range": {"data": {"gte": f"{year_min}-01-01"}}}], "minimum_should_match": 1}})
         if year_max and year_max.isdigit():
             filters_for_es.append({"bool": {"should": [{"range": {"data_julgamento": {"lte": f"{year_max}-12-31"}}}, {"range": {"data": {"lte": f"{year_max}-12-31"}}}], "minimum_should_match": 1}})
 
-        # Lógica original de ordenação
         sort_query = []
         if sort_order == 'date_desc':
             sort_query = [{"data_julgamento": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}, {"data": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}]
@@ -279,7 +252,6 @@ def home():
         
         is_homepage = not query and not year_min and not year_max and sort_order == 'relevance'
         
-        # Lógica original de construção da query
         if is_homepage:
             search_body = {"query": {"match_all": {}}, "from": 0, "size": 3, "sort": [{"data_julgamento": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}, {"data": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}]}
         else:
@@ -294,7 +266,6 @@ def home():
                 search_body["query"] = {"bool": {"must": {"match_all": {}}, "filter": filters_for_es}}
             else:
                 search_body["query"] = {"match_all": {}}
-            
             if sort_query:
                 search_body["sort"] = sort_query
 
@@ -339,7 +310,7 @@ def home():
         )
 
 def get_pagination_range(current_page, total_pages, window=2):
-    """Gera lista de páginas para paginação com elipses"""
+    """Gera lista de páginas para paginação com elipses (lógica original)"""
     if total_pages is None or total_pages <= 1:
         return []
     if total_pages <= 7:
@@ -360,7 +331,7 @@ def get_pagination_range(current_page, total_pages, window=2):
 
 @app.route('/import-json')
 def import_data_from_json():
-    """Importa dados do arquivo JSON local"""
+    """Importa dados do arquivo JSON local (lógica original)"""
     try:
         create_index_if_not_exists()
         filepath = os.path.join('data', 'jurisprudencias.json')
@@ -392,7 +363,7 @@ def import_data_from_json():
 
 @app.route('/importar-lexml')
 def importar_lexml():
-    """Importa dados do LexML via scraping"""
+    """Importa dados do LexML via scraping (lógica original)"""
     termo_de_busca = request.args.get('q')
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
@@ -466,3 +437,4 @@ if __name__ == '__main__':
                 print("Não foi possível conectar ao Elasticsearch. A aplicação pode não funcionar.")
     
     app.run(host='0.0.0.0', port=3000, debug=True)
+
