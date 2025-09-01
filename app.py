@@ -1,4 +1,4 @@
-# app.py - VERSÃO FINAL E DEFINITIVA COM BUSCA POR ANO
+# app.py - VERSÃO EVOLUÍDA COM BUSCA DE JURISPRUDÊNCIA E PRECEDENTES
 
 import os
 import json
@@ -17,12 +17,13 @@ RESULTS_PER_PAGE = 10
 
 es = Elasticsearch("http://elasticsearch:9200")
 
-# 1. MAPEAMENTO ATUALIZADO: Adicionamos um campo 'ano_julgamento' para o filtro
+# 1. MAPEAMENTO ATUALIZADO: Adicionamos campos para diferenciar os tipos de documento
 INDEX_MAPPING = {
     "mappings": {
         "properties": {
-            "data_julgamento": {"type": "text"}, # Armazena a data original como texto para exibição
-            "ano_julgamento": {"type": "integer"}, # Novo campo numérico para o filtro de ano
+            "tipo_documento": {"type": "keyword"}, # 'jurisprudencia' ou 'precedente'
+            "data_julgamento": {"type": "text"},
+            "ano_julgamento": {"type": "integer"},
             "fonte": {"type": "keyword"},
             "autoridade": {"type": "text", "fields": {"keyword": {"type": "keyword", "ignore_above": 256}}},
             "classe": {"type": "keyword"},
@@ -30,7 +31,12 @@ INDEX_MAPPING = {
             "ementa": {"type": "text"},
             "texto_decisao": {"type": "text"},
             "link": {"type": "keyword"},
-            "id": {"type": "keyword"}
+            "id": {"type": "keyword"},
+            # Campos específicos de Precedentes
+            "orgaoJulgador": {"type": "keyword"},
+            "ramoDireito": {"type": "keyword"},
+            "numeroUnico": {"type": "keyword"},
+            "assuntos": {"type": "text"}
         }
     },
     "settings": {"index": {"number_of_shards": 1, "number_of_replicas": 0}}
@@ -42,14 +48,12 @@ def extract_year(date_str):
         return None
     date_str = date_str.strip()
     try:
-        # Tenta extrair de DD/MM/YYYY
-        year = int(date_str[6:10])
+        year = int(datetime.strptime(date_str.strip()[:10], '%d/%m/%Y').strftime('%Y'))
         if 1800 < year < 2100: return year
     except (ValueError, IndexError):
         pass
     try:
-        # Tenta extrair de YYYY-MM-DD
-        year = int(date_str[0:4])
+        year = int(datetime.strptime(date_str.strip()[:10], '%Y-%m-%d').strftime('%Y'))
         if 1800 < year < 2100: return year
     except (ValueError, IndexError):
         pass
@@ -72,7 +76,7 @@ INTERFACE_TEMPLATE = """
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-    <title>iurisadv.ai - Pesquisa Jurisprudencial</title>
+    <title>iurisadv.ai - Pesquisa Jurídica Avançada</title>
     <style>
       body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; padding: 0; background-color: #f4f7fc; color: #333; }
       .header { background-color: #fff; padding: 1em 2em; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
@@ -80,6 +84,12 @@ INTERFACE_TEMPLATE = """
       h1 { color: #2c3e50; font-size: 1.5em; }
       .search-container { text-align: center; margin-bottom: 1em; }
       form { display: block; }
+      /* Estilos para o novo seletor de tipo de busca */
+      .search-type-selector { display: flex; justify-content: center; margin-bottom: 1.5em; background-color: #e9ecef; border-radius: 8px; padding: 5px; max-width: 400px; margin-left: auto; margin-right: auto;}
+      .search-type-selector input[type="radio"] { display: none; }
+      .search-type-selector label { flex: 1; padding: 10px 15px; text-align: center; cursor: pointer; border-radius: 6px; transition: all 0.2s ease-in-out; font-weight: 500; color: #495057; }
+      .search-type-selector input[type="radio"]:checked + label { background-color: #fff; color: #0d6efd; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+      
       .search-bar { display: flex; max-width: 800px; margin: auto; gap: 10px; }
       .search-bar input { flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }
       .search-bar button { padding: 12px 20px; border: none; background-color: #3498db; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; }
@@ -101,8 +111,8 @@ INTERFACE_TEMPLATE = """
       .result-item h3 a { text-decoration: none; color: #1b4f72; font-size: 1.1em;}
       .result-item h3 a:hover { text-decoration: underline; }
       .result-item dl { margin: 1em 0 0 0; }
-      .result-item dt { font-weight: bold; color: #566573; float: left; width: 90px; clear: left; }
-      .result-item dd { margin-left: 100px; margin-bottom: 0.5em; }
+      .result-item dt { font-weight: bold; color: #566573; float: left; width: 120px; clear: left; }
+      .result-item dd { margin-left: 130px; margin-bottom: 0.5em; }
       .pagination { text-align: center; margin: 2em 0; display: flex; justify-content: center; align-items: center; }
       .pagination a, .pagination span { margin: 0 2px; padding: 8px 12px; border: 1px solid #ddd; text-decoration: none; color: #3498db; border-radius: 4px; }
       .pagination a:hover { background-color: #f8f9fa; }
@@ -118,6 +128,13 @@ INTERFACE_TEMPLATE = """
     <div class="header"><h1>iurisadv.ai</h1></div>
     <div class="container">
         <form action="/" method="GET">
+            <div class="search-type-selector">
+                <input type="radio" id="type_juris" name="type" value="jurisprudencia" {% if search_type == 'jurisprudencia' %}checked{% endif %}>
+                <label for="type_juris">Jurisprudências</label>
+                <input type="radio" id="type_prec" name="type" value="precedente" {% if search_type == 'precedente' %}checked{% endif %}>
+                <label for="type_prec">Precedentes</label>
+            </div>
+
             <div class="search-container">
                 <div class="search-bar">
                     <input type="text" name="q" placeholder="Digite sua busca..." value="{{ query }}">
@@ -165,24 +182,35 @@ INTERFACE_TEMPLATE = """
                 {% elif trigger_scrape %}
                     <div class="message-box import">
                          <p><strong>Nenhum resultado encontrado para "{{ query }}".</strong></p>
-                         <a href="{{ url_for('importar_lexml', q=query) }}">Buscar e importar do LexML (a partir de 2015)</a>
+                         {% if search_type == 'jurisprudencia' %}
+                            <a href="{{ url_for('importar_lexml', q=query) }}">Buscar e importar Jurisprudência do LexML</a>
+                         {% else %}
+                            <a href="{{ url_for('importar_bnp', q=query) }}">Buscar e importar Precedentes do Pangea BNP</a>
+                         {% endif %}
                     </div>
                 {% elif total is defined and total is not none and not is_homepage %}
                      <div class="results-info"><p>Exibindo página {{ current_page }} de {{ total_pages }} ({{ total }} resultados no total).</p></div>
                 {% endif %}
 
                 {% if is_homepage %}
-                    <h2>Jurisprudências Mais Recentes</h2>
+                    <h2>Documentos Mais Recentes</h2>
                 {% endif %}
                 
                 {% for result in results %}
                     <div class="result-item">
                         <h3><a href="{{ result.link }}" target="_blank">{{ result.titulo }}</a></h3>
                         <dl>
-                            {% if result.autoridade %}<dt>Autoridade:</dt><dd>{{ result.autoridade }}</dd>{% endif %}
-                            {% if result.data_julgamento %}<dt>Data:</dt><dd>{{ result.data_julgamento }}</dd>{% endif %}
-                            {% if result.ementa %}<dt>Ementa:</dt><dd>{{ result.ementa }}</dd>{% endif %}
-                            {% if result.id %}<dt>URN:</dt><dd>{{ result.id }}</dd>{% endif %}
+                            {% if result.tipo_documento == 'precedente' %}
+                                {% if result.orgaoJulgador %}<dt>Órgão Julgador:</dt><dd>{{ result.orgaoJulgador }}</dd>{% endif %}
+                                {% if result.ramoDireito %}<dt>Ramo do Direito:</dt><dd>{{ result.ramoDireito }}</dd>{% endif %}
+                                {% if result.numeroUnico %}<dt>Número Único:</dt><dd>{{ result.numeroUnico }}</dd>{% endif %}
+                                {% if result.assuntos %}<dt>Assuntos:</dt><dd>{{ result.assuntos }}</dd>{% endif %}
+                                {% if result.data_julgamento %}<dt>Data:</dt><dd>{{ result.data_julgamento }}</dd>{% endif %}
+                            {% else %}
+                                {% if result.autoridade %}<dt>Autoridade:</dt><dd>{{ result.autoridade }}</dd>{% endif %}
+                                {% if result.data_julgamento %}<dt>Data:</dt><dd>{{ result.data_julgamento }}</dd>{% endif %}
+                                {% if result.ementa %}<dt>Ementa:</dt><dd>{{ result.ementa }}</dd>{% endif %}
+                            {% endif %}
                             {% if result.fonte %}<dt>Fonte:</dt><dd>{{ result.fonte }}</dd>{% endif %}
                         </dl>
                     </div>
@@ -190,17 +218,17 @@ INTERFACE_TEMPLATE = """
 
                 {% if total_pages and total_pages > 1 %}
                 <div class="pagination">
-                    <a href="{{ url_for('home', q=query, page=1, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">&laquo;</a>
+                    <a href="{{ url_for('home', q=query, type=search_type, page=1, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">&laquo;</a>
                     {% for page_num in page_numbers %}
                         {% if page_num == '...' %}
                             <span class="dots">...</span>
                         {% elif page_num == current_page %}
                             <span class="current">{{ page_num }}</span>
                         {% else %}
-                            <a href="{{ url_for('home', q=query, page=page_num, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">{{ page_num }}</a>
+                            <a href="{{ url_for('home', q=query, type=search_type, page=page_num, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">{{ page_num }}</a>
                         {% endif %}
                     {% endfor %}
-                    <a href="{{ url_for('home', q=query, page=total_pages, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">&raquo;</a>
+                    <a href="{{ url_for('home', q=query, type=search_type, page=total_pages, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">&raquo;</a>
                 </div>
                 {% endif %}
             </div>
@@ -229,9 +257,10 @@ INTERFACE_TEMPLATE = """
 
 @app.route('/', endpoint='home')
 def home():
-    """Rota principal com pesquisa e filtros, agora por ano."""
+    """Rota principal com pesquisa por tipo, filtros por ano."""
     try:
         query = request.args.get('q', '').strip()
+        search_type = request.args.get('type', 'jurisprudencia') # Novo parâmetro
         page = request.args.get('page', 1, type=int)
         sort_order = request.args.get('sort', 'relevance')
         year_min = request.args.get('year_min', '')
@@ -243,14 +272,15 @@ def home():
 
         if not es.indices.exists(index=INDEX_NAME):
             return render_template_string(
-                INTERFACE_TEMPLATE, needs_import=True, query=query,
+                INTERFACE_TEMPLATE, needs_import=True, query=query, search_type=search_type,
                 sort_order=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters,
                 results=[], page_numbers=[], current_page=1, total_pages=0, total=0,
                 is_homepage=False, error=None, trigger_scrape=False
             )
-
-        # 2. LÓGICA DE FILTRO ATUALIZADA: Filtra pelo campo numérico 'ano_julgamento'
-        filters_for_es = []
+        
+        # Filtro base pelo tipo de documento
+        filters_for_es = [{"term": {"tipo_documento.keyword": search_type}}]
+        
         year_range_filter = {}
         if year_min and year_min.isdigit():
             year_range_filter["gte"] = int(year_min)
@@ -268,20 +298,19 @@ def home():
         
         is_homepage = not query and not year_min and not year_max and sort_order == 'relevance'
         
+        search_body = {"from": from_value, "size": RESULTS_PER_PAGE}
+        
         if is_homepage:
-            search_body = {"query": {"match_all": {}}, "from": 0, "size": 3, "sort": [{"ano_julgamento": {"order": "desc", "missing": "_last"}}]}
+            search_body["query"] = {"bool": {"filter": filters_for_es, "must": {"match_all": {}}}}
+            search_body["sort"] = [{"ano_julgamento": {"order": "desc", "missing": "_last"}}]
+            search_body["size"] = 3
         else:
-            search_body = {"from": from_value, "size": RESULTS_PER_PAGE}
+            must_clause = {"match_all": {}}
             if query:
-                must_clause = {"multi_match": {"query": query, "fields": ["titulo^2", "ementa^1.5", "texto_decisao", "autoridade"], "type": "best_fields", "operator": "or"}}
-                if filters_for_es:
-                    search_body["query"] = {"bool": {"must": must_clause, "filter": filters_for_es}}
-                else:
-                    search_body["query"] = must_clause
-            elif filters_for_es:
-                search_body["query"] = {"bool": {"must": {"match_all": {}}, "filter": filters_for_es}}
-            else:
-                search_body["query"] = {"match_all": {}}
+                must_clause = {"multi_match": {"query": query, "fields": ["titulo^2", "ementa^1.5", "texto_decisao", "autoridade", "assuntos"], "type": "best_fields", "operator": "or"}}
+            
+            search_body["query"] = {"bool": {"must": must_clause, "filter": filters_for_es}}
+            
             if sort_query:
                 search_body["sort"] = sort_query
         
@@ -290,14 +319,7 @@ def home():
         
         results = []
         for hit in res['hits']['hits']:
-            doc = hit['_source']
-            results.append({
-                'titulo': doc.get('titulo', 'Sem título'), 'link': doc.get('link', '#'),
-                'autoridade': doc.get('autoridade', ''),
-                'data_julgamento': doc.get('data_julgamento', ''), # Exibe a data completa original
-                'ementa': doc.get('ementa', ''),
-                'id': doc.get('id', ''), 'fonte': doc.get('fonte', '')
-            })
+            results.append(hit['_source']) # Adiciona o documento inteiro
         
         total = res['hits']['total']['value']
         total_pages = ceil(total / RESULTS_PER_PAGE) if not is_homepage else 0
@@ -309,7 +331,7 @@ def home():
 
         return render_template_string(
             INTERFACE_TEMPLATE,
-            query=query, results=results, total=total, current_page=page, total_pages=total_pages,
+            query=query, search_type=search_type, results=results, total=total, current_page=page, total_pages=total_pages,
             sort_order=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters,
             is_homepage=is_homepage, page_numbers=page_numbers, needs_import=False, error=None,
             trigger_scrape=trigger_scrape
@@ -319,8 +341,8 @@ def home():
         print(f"Erro na rota de busca: {e}")
         traceback.print_exc()
         return render_template_string(
-            INTERFACE_TEMPLATE, query=request.args.get('q', ''), results=[], total=0,
-            current_page=1, total_pages=0, sort_order=request.args.get('sort', 'relevance'),
+            INTERFACE_TEMPLATE, query=request.args.get('q', ''), search_type=request.args.get('type', 'jurisprudencia'), 
+            results=[], total=0, current_page=1, total_pages=0, sort_order=request.args.get('sort', 'relevance'),
             year_min=request.args.get('year_min', ''), year_max=request.args.get('year_max', ''),
             show_filters=request.args.get('show_filters', 'false'), is_homepage=False,
             page_numbers=[], needs_import=False, error=f"Ocorreu um erro ao processar a busca: {str(e)}",
@@ -333,18 +355,13 @@ def get_pagination_range(current_page, total_pages, window=2):
         return []
     if total_pages <= 7:
         return list(range(1, total_pages + 1))
-    
     pages = [1]
-    if current_page > window + 2:
-        pages.append('...')
-    start = max(2, current_page - window)
-    end = min(total_pages - 1, current_page + window)
+    if current_page > window + 2: pages.append('...')
+    start, end = max(2, current_page - window), min(total_pages - 1, current_page + window)
     for i in range(start, end + 1):
         if i not in pages: pages.append(i)
-    if current_page < total_pages - (window + 1):
-        pages.append('...')
-    if total_pages not in pages:
-        pages.append(total_pages)
+    if current_page < total_pages - (window + 1): pages.append('...')
+    if total_pages not in pages: pages.append(total_pages)
     return pages
 
 @app.route('/import-json')
@@ -361,19 +378,15 @@ def import_data_from_json():
         for doc in jurisprudencias:
             doc_id = doc.get("numero_processo")
             if not doc_id: continue
-            
-            # 3. LÓGICA DE IMPORTAÇÃO ATUALIZADA: Extrai o ano e o salva
             original_date = doc.get("data_julgamento")
-            
             doc_to_index = {
-                "id": doc_id, "titulo": doc.get("classe", "") + " - " + doc.get("assunto", ""),
+                "tipo_documento": "jurisprudencia", "id": doc_id, 
+                "titulo": doc.get("classe", "") + " - " + doc.get("assunto", ""),
                 "classe": doc.get("classe"), "assunto": doc.get("assunto"),
                 "magistrado": doc.get("magistrado"), "comarca": doc.get("comarca"),
-                "data_julgamento": original_date, # Salva a data original para exibição
-                "ano_julgamento": extract_year(original_date), # Salva o ano extraído
-                "ementa": doc.get("ementa"),
-                "texto_decisao": doc.get("inteiro_teor"), "fonte": "TJSC (Arquivo JSON)",
-                "link": "#", "autoridade": doc.get("magistrado", "")
+                "data_julgamento": original_date, "ano_julgamento": extract_year(original_date),
+                "ementa": doc.get("ementa"), "texto_decisao": doc.get("inteiro_teor"), 
+                "fonte": "TJSC (Arquivo JSON)", "link": "#", "autoridade": doc.get("magistrado", "")
             }
             es.index(index=INDEX_NAME, id=doc_id, body=doc_to_index)
             count += 1
@@ -388,6 +401,7 @@ def import_data_from_json():
 @app.route('/importar-lexml')
 def importar_lexml():
     """Importa dados do LexML via scraping com extração de ano"""
+    # Lógica existente... (sem alterações)
     termo_de_busca = request.args.get('q')
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
@@ -413,18 +427,14 @@ def importar_lexml():
                     doc_id = urn_tag.find_next_sibling('td').text.strip()
                     titulo_link = titulo_tag.find_next_sibling('td').find('a')
                     if not (doc_id and titulo_link): continue
-                    
                     data_tag = item.find(lambda t: t.name == 'td' and 'Data' in t.text)
                     autoridade_tag = item.find(lambda t: t.name == 'td' and 'Autoridade' in t.text)
                     ementa_tag = item.find(lambda t: t.name == 'td' and 'Ementa' in t.text)
-                    
                     original_date_str = data_tag.find_next_sibling('td').text.strip() if data_tag else ''
-
                     documento = {
-                        "id": doc_id, "titulo": titulo_link.text.strip(),
+                        "tipo_documento": "jurisprudencia", "id": doc_id, "titulo": titulo_link.text.strip(),
                         "ementa": ementa_tag.find_next_sibling('td').text.strip() if ementa_tag else '',
-                        "data_julgamento": original_date_str, # Salva a data original
-                        "ano_julgamento": extract_year(original_date_str), # Salva o ano extraído
+                        "data_julgamento": original_date_str, "ano_julgamento": extract_year(original_date_str),
                         "autoridade": autoridade_tag.find_next_sibling('td').text.strip() if autoridade_tag else '',
                         "link": f"https://www.lexml.gov.br{titulo_link['href']}", "fonte": "LexML",
                         "texto_decisao": "", "classe": "", "assunto": ""
@@ -441,11 +451,84 @@ def importar_lexml():
                 continuar = False
         es.indices.refresh(index=INDEX_NAME)
         print(f"Total de documentos importados: {total_coletado}")
-        return redirect(url_for('home', q=termo_de_busca))
+        return redirect(url_for('home', q=termo_de_busca, type='jurisprudencia'))
     except Exception as e:
         print(f"Erro durante importação do LexML: {e}")
         traceback.print_exc()
         return f"Erro durante a coleta: {e}", 500
+
+# 4. NOVA ROTA E FUNÇÃO PARA O SCRAPER DE PRECEDENTES (BNP)
+@app.route('/importar-bnp')
+def importar_bnp():
+    """Importa dados de Precedentes do Pangea BNP via scraping."""
+    termo_de_busca = request.args.get('q')
+    if not termo_de_busca:
+        return "Erro: Nenhum termo de busca fornecido.", 400
+    try:
+        create_index_if_not_exists()
+        
+        # A URL de busca do Pangea BNP é direta
+        url = f"https://pangeabnp.pdpj.jus.br/precedentes?q={requests.utils.quote(termo_de_busca)}"
+        print(f"Acessando Pangea BNP: {url}")
+        
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        # Com base na análise do HTML, os resultados estão em cards
+        resultados = soup.find_all('app-card-precedente-item')
+        total_coletado = 0
+        
+        if not resultados:
+            print("Nenhum precedente encontrado na página do Pangea BNP.")
+        
+        for item in resultados:
+            try:
+                titulo = item.find('h5', class_='card-title').get_text(strip=True) if item.find('h5', class_='card-title') else 'Sem título'
+                link = item.find('a', class_='card-title-link')['href'] if item.find('a', class_='card-title-link') else '#'
+                
+                # Extrai os detalhes de uma lista de definições
+                detalhes = {}
+                for dl_item in item.find_all('dl'):
+                    dt = dl_item.find('dt').get_text(strip=True) if dl_item.find('dt') else ''
+                    dd = dl_item.find('dd').get_text(strip=True) if dl_item.find('dd') else ''
+                    if dt and dd:
+                        detalhes[dt] = dd
+                
+                original_date_str = detalhes.get('Data de Julgamento:', '')
+                doc_id = f"BNP-{detalhes.get('Número Único:', '').strip()}" or f"BNP-{hash(titulo)}"
+
+                documento = {
+                    "tipo_documento": "precedente",
+                    "id": doc_id,
+                    "titulo": titulo,
+                    "link": f"https://pangeabnp.pdpj.jus.br{link}",
+                    "fonte": "Pangea BNP",
+                    "data_julgamento": original_date_str,
+                    "ano_julgamento": extract_year(original_date_str),
+                    "orgaoJulgador": detalhes.get('Órgão Julgador:', ''),
+                    "ramoDireito": detalhes.get('Ramo do Direito:', ''),
+                    "numeroUnico": detalhes.get('Número Único:', ''),
+                    "assuntos": detalhes.get('Assuntos:', ''),
+                    "ementa": item.find('p', class_='card-text').get_text(strip=True) if item.find('p', class_='card-text') else ''
+                }
+                
+                es.index(index=INDEX_NAME, id=doc_id, body=documento)
+                total_coletado += 1
+            except Exception as e:
+                print(f"Erro ao processar item do BNP: {e}")
+        
+        es.indices.refresh(index=INDEX_NAME)
+        print(f"Total de precedentes importados do Pangea BNP: {total_coletado}")
+        return redirect(url_for('home', q=termo_de_busca, type='precedente'))
+
+    except Exception as e:
+        print(f"Erro durante importação do Pangea BNP: {e}")
+        traceback.print_exc()
+        return f"Erro durante a coleta do Pangea BNP: {e}", 500
+
 
 if __name__ == '__main__':
     max_retries = 10
