@@ -1,4 +1,4 @@
-# requirements.txt
+# requirements.txt (Correto)
 Flask==2.3.2
 elasticsearch==8.4.2
 requests==2.31.0
