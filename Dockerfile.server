@@ -1,15 +1,38 @@
-# Dockerfile.server - VERSÃO FINAL E SIMPLIFICADA
+# Usa uma imagem base Python slim
+FROM python:3.9-slim
 
-FROM docker.io/library/node:lts
+# 1. Instala dependências do sistema necessárias para o Google Chrome e o WebDriver
+RUN apt-get update && apt-get install -y \
+    wget \
+    gnupg \
+    --no-install-recommends
 
-# Define o diretório de trabalho.
-WORKDIR /usr/src/app
+# 2. Adiciona o repositório oficial do Google Chrome
+RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
+    && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list
 
-# Copia apenas os arquivos de dependências para otimizar o cache.
-COPY package*.json ./
+# 3. Instala a versão estável do Google Chrome
+RUN apt-get update && apt-get install -y \
+    google-chrome-stable \
+    --no-install-recommends
 
-# Instala as dependências.
-RUN npm install
+# 4. Limpa o cache do apt para reduzir o tamanho da imagem
+RUN rm -rf /var/lib/apt/lists/*
 
-# Copia o restante do código da aplicação.
+# Define o diretório de trabalho
+WORKDIR /app
+
+# Copia o arquivo de dependências
+COPY requirements.txt requirements.txt
+
+# Instala as dependências do Python
+RUN pip install --no-cache-dir -r requirements.txt
+
+# Copia o resto dos arquivos da aplicação
 COPY . .
+
+# Expõe a porta que o Flask vai rodar
+EXPOSE 3000
+
+# Comando para rodar a aplicação
+CMD ["python", "app.py"]

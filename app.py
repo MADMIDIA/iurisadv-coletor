@@ -1,4 +1,4 @@
-# app.py - VERSÃO EVOLUÍDA COM ARQUITETURA DE COLETORES E NOVA UI
+# app.py - VERSÃO EVOLUÍDA COM MELHOR LOGGING NOS SCRAPERS
 
 import os
 import json
@@ -9,19 +9,16 @@ from math import ceil
 from datetime import datetime
 import traceback
 
-# Importa o novo scraper do pacote 'coletores'
 from coletores.bnp_scraper import scrape_bnp
-# Mantém a importação original para o scraper LexML
 import requests
 from bs4 import BeautifulSoup
-
 
 app = Flask(__name__)
 INDEX_NAME = 'jurisprudencia'
 RESULTS_PER_PAGE = 10
-
 es = Elasticsearch("http://elasticsearch:9200")
 
+# ... (O restante do seu INDEX_MAPPING, extract_year, create_index_if_not_exists e INTERFACE_TEMPLATE permanecem os mesmos)
 INDEX_MAPPING = {
     "mappings": {
         "properties": {
@@ -90,8 +87,6 @@ INTERFACE_TEMPLATE = """
       .search-bar input { flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }
       .search-bar button { padding: 12px 20px; border: none; background-color: #3498db; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; }
       .search-bar button:hover { background-color: #2980b9; }
-      
-      /* NOVO ESTILO PARA O BOTÃO DE FILTROS AVANÇADOS */
       .advanced-search-toggle { display: flex; justify-content: flex-end; align-items-center; max-width: 800px; margin: 1em auto; gap: 10px; }
       .advanced-search-toggle label { font-weight: 500; color: #495057; }
       .toggle-switch { position: relative; display: inline-block; width: 50px; height: 28px; }
@@ -100,7 +95,6 @@ INTERFACE_TEMPLATE = """
       .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
       input:checked + .slider { background-color: #2196F3; }
       input:checked + .slider:before { transform: translateX(22px); }
-
       .filters-box { background-color: #fff; border: 1px solid #e1e8ed; border-radius: 8px; padding: 1.5em; margin-top: 1em; display: none; max-width: 800px; margin-left: auto; margin-right: auto; }
       .filters-box.visible { display: block; }
       .filters-box h2 { margin-top: 0; color: #2c3e50; }
@@ -138,7 +132,6 @@ INTERFACE_TEMPLATE = """
                 <input type="radio" id="type_prec" name="type" value="precedente" {% if search_type == 'precedente' %}checked{% endif %}>
                 <label for="type_prec">Precedentes</label>
             </div>
-
             <div class="search-container">
                 <div class="search-bar">
                     <input type="text" name="q" placeholder="Digite sua busca..." value="{{ query }}">
@@ -152,7 +145,6 @@ INTERFACE_TEMPLATE = """
                     </label>
                 </div>
             </div>
-
             <div class="filters-box" id="filters-box">
                 <h2>Filtros Avançados</h2>
                 <input type="hidden" name="show_filters" value="true">
@@ -176,7 +168,6 @@ INTERFACE_TEMPLATE = """
                 <button type="submit" style="width: 100%; padding: 12px; border: none; background-color: #27ae60; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; margin-top: 1em;">Aplicar Filtros</button>
             </div>
         </form>
-
         <div class="content-wrapper">
             <div class="results-column">
                 {% if needs_import %}
@@ -198,11 +189,9 @@ INTERFACE_TEMPLATE = """
                 {% elif total is defined and total is not none and not is_homepage %}
                      <div class="results-info"><p>Exibindo página {{ current_page }} de {{ total_pages }} ({{ total }} resultados no total).</p></div>
                 {% endif %}
-
                 {% if is_homepage %}
                     <h2>Documentos Mais Recentes</h2>
                 {% endif %}
-                
                 {% for result in results %}
                     <div class="result-item">
                         <h3><a href="{{ result.link }}" target="_blank">{{ result.titulo }}</a></h3>
@@ -222,7 +211,6 @@ INTERFACE_TEMPLATE = """
                         </dl>
                     </div>
                 {% endfor %}
-
                 {% if total_pages and total_pages > 1 %}
                 <div class="pagination">
                     <a href="{{ url_for('home', q=query, type=search_type, page=1, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">&laquo;</a>
@@ -246,7 +234,6 @@ INTERFACE_TEMPLATE = """
             const filtersBox = document.getElementById('filters-box');
             filtersBox.classList.toggle('visible');
         }
-        
         document.addEventListener('DOMContentLoaded', function() {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('show_filters') === 'true' || 
@@ -264,7 +251,6 @@ INTERFACE_TEMPLATE = """
 
 @app.route('/', endpoint='home')
 def home():
-    """Rota principal com pesquisa por tipo, filtros por ano."""
     try:
         query = request.args.get('q', '').strip()
         search_type = request.args.get('type', 'jurisprudencia')
@@ -273,10 +259,8 @@ def home():
         year_min = request.args.get('year_min', '')
         year_max = request.args.get('year_max', '')
         show_filters = request.args.get('show_filters', 'false')
-        
         if page < 1: page = 1
         from_value = (page - 1) * RESULTS_PER_PAGE
-
         if not es.indices.exists(index=INDEX_NAME):
             return render_template_string(
                 INTERFACE_TEMPLATE, needs_import=True, query=query, search_type=search_type,
@@ -284,22 +268,16 @@ def home():
                 results=[], page_numbers=[], current_page=1, total_pages=0, total=0,
                 is_homepage=False, error=None, trigger_scrape=False
             )
-        
         filters_for_es = [{"term": {"tipo_documento.keyword": search_type}}]
-        
         year_range_filter = {}
         if year_min and year_min.isdigit(): year_range_filter["gte"] = int(year_min)
         if year_max and year_max.isdigit(): year_range_filter["lte"] = int(year_max)
         if year_range_filter: filters_for_es.append({"range": {"ano_julgamento": year_range_filter}})
-
         sort_query = []
         if sort_order == 'date_desc': sort_query = [{"ano_julgamento": {"order": "desc", "missing": "_last"}}]
         elif sort_order == 'date_asc': sort_query = [{"ano_julgamento": {"order": "asc", "missing": "_last"}}]
-        
         is_homepage = not query and not year_min and not year_max and sort_order == 'relevance'
-        
         search_body = {"from": from_value, "size": RESULTS_PER_PAGE}
-        
         if is_homepage:
             search_body["query"] = {"bool": {"filter": filters_for_es, "must": {"match_all": {}}}}
             search_body["sort"] = [{"ano_julgamento": {"order": "desc", "missing": "_last"}}]
@@ -310,18 +288,14 @@ def home():
                 must_clause = {"multi_match": {"query": query, "fields": ["titulo^2", "ementa^1.5", "texto_decisao", "autoridade", "assuntos"], "type": "best_fields", "operator": "or"}}
             search_body["query"] = {"bool": {"must": must_clause, "filter": filters_for_es}}
             if sort_query: search_body["sort"] = sort_query
-        
         print(f"CONSULTA ELASTICSEARCH:\n{json.dumps(search_body, indent=2, ensure_ascii=False)}\n")
         res = es.search(index=INDEX_NAME, body=search_body)
-        
         results = [hit['_source'] for hit in res['hits']['hits']]
         total = res['hits']['total']['value']
         total_pages = ceil(total / RESULTS_PER_PAGE) if not is_homepage else 0
         if page > total_pages and total_pages > 0: page = total_pages
-        
         page_numbers = get_pagination_range(page, total_pages)
         trigger_scrape = query and total == 0 and not is_homepage
-
         return render_template_string(
             INTERFACE_TEMPLATE,
             query=query, search_type=search_type, results=results, total=total, current_page=page, total_pages=total_pages,
@@ -329,7 +303,6 @@ def home():
             is_homepage=is_homepage, page_numbers=page_numbers, needs_import=False, error=None,
             trigger_scrape=trigger_scrape
         )
-
     except Exception as e:
         print(f"Erro na rota de busca: {e}")
         traceback.print_exc()
@@ -388,7 +361,7 @@ def importar_lexml():
     termo_de_busca = request.args.get('q')
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
-        # ... (Lógica do LexML scraper permanece a mesma)
+        print("\n--- INICIANDO SCRAPER LEXML ---")
         create_index_if_not_exists()
         total_coletado = 0
         ano_inicial, ano_atual = 2015, datetime.now().year
@@ -398,10 +371,13 @@ def importar_lexml():
         continuar = True
         while continuar and total_coletado < max_documentos:
             url = f"https://www.lexml.gov.br/busca/search?keyword={keyword_com_data}&f1-tipoDocumento=Jurisprudência&startDoc={start_doc}"
+            print(f"Buscando em: {url}")
             response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=30)
+            print(f"Status da resposta: {response.status_code}")
             response.raise_for_status()
             soup = BeautifulSoup(response.text, 'html.parser')
             resultados = soup.find_all('div', class_='docHit')
+            print(f"Encontrados {len(resultados)} resultados nesta página.")
             if not resultados: break
             for item in resultados:
                 try:
@@ -426,7 +402,7 @@ def importar_lexml():
                     es.index(index=INDEX_NAME, id=doc_id, body=documento)
                     total_coletado += 1
                 except Exception as e:
-                    print(f"Erro ao processar item: {e}")
+                    print(f"Erro ao processar item do LexML: {e}")
             link_proxima = soup.find('a', string=lambda text: text and 'Próxima' in text.strip())
             if link_proxima and total_coletado < max_documentos:
                 start_doc += 20
@@ -434,13 +410,12 @@ def importar_lexml():
             else:
                 continuar = False
         es.indices.refresh(index=INDEX_NAME)
-        print(f"Total de documentos importados: {total_coletado}")
+        print(f"--- SCRAPER LEXML FINALIZADO --- Total importado: {total_coletado}")
         return redirect(url_for('home', q=termo_de_busca, type='jurisprudencia'))
     except Exception as e:
-        print(f"Erro durante importação do LexML: {e}")
+        print(f"Erro GERAL durante importação do LexML: {e}")
         traceback.print_exc()
         return f"Erro durante a coleta: {e}", 500
-
 
 @app.route('/importar-bnp')
 def importar_bnp():
@@ -449,25 +424,19 @@ def importar_bnp():
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
         create_index_if_not_exists()
-        
-        # Chama a função do nosso novo módulo coletor
         documentos = scrape_bnp(termo_de_busca)
         total_coletado = 0
-        
         for doc in documentos:
             doc['ano_julgamento'] = extract_year(doc.get('data_julgamento'))
             es.index(index=INDEX_NAME, id=doc['id'], body=doc)
             total_coletado += 1
-            
         es.indices.refresh(index=INDEX_NAME)
         print(f"Total de precedentes indexados do Pangea BNP: {total_coletado}")
         return redirect(url_for('home', q=termo_de_busca, type='precedente'))
-
     except Exception as e:
         print(f"Erro durante importação do Pangea BNP: {e}")
         traceback.print_exc()
         return f"Erro durante a coleta do Pangea BNP: {e}", 500
-
 
 if __name__ == '__main__':
     max_retries = 10
@@ -485,4 +454,3 @@ if __name__ == '__main__':
             else: print("Não foi possível conectar ao Elasticsearch. A aplicação pode não funcionar.")
     
     app.run(host='0.0.0.0', port=3000, debug=True)
-
