@@ -324,6 +324,38 @@ def importar_lexml():
         traceback.print_exc()
         return f"Erro durante a coleta: {e}", 500
 
+def get_pagination_range(current_page, total_pages, window=2):
+    """Gera lista de páginas para paginação com elipses"""
+    if total_pages <= 7:
+        return list(range(1, total_pages + 1))
+    
+    pages = []
+    
+    # Sempre mostrar primeira página
+    pages.append(1)
+    
+    # Adicionar elipse se necessário
+    if current_page > window + 2:
+        pages.append('...')
+    
+    # Páginas ao redor da atual
+    start = max(2, current_page - window)
+    end = min(total_pages - 1, current_page + window)
+    
+    for i in range(start, end + 1):
+        if i not in pages:
+            pages.append(i)
+    
+    # Adicionar elipse se necessário
+    if current_page < total_pages - (window + 1):
+        pages.append('...')
+    
+    # Sempre mostrar última página
+    if total_pages not in pages:
+        pages.append(total_pages)
+    
+    return pages
+
 if __name__ == '__main__':
     # Verificar conexão com Elasticsearch
     max_retries = 5
