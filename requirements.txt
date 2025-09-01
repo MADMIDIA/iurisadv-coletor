@@ -1,5 +1,6 @@
-# requirements.txt (Correto)
-Flask==2.3.2
-elasticsearch==8.4.2
-requests==2.31.0
+# requirements.txt
 beautifulsoup4==4.12.2
+elasticsearch==8.4.2
+Flask==2.3.2
+requests==2.31.0
+pypugjs
