@@ -9,9 +9,9 @@ from math import ceil
 from datetime import datetime
 import traceback
 
-# Importa o novo scraper
+# Importa o novo scraper do pacote 'coletores'
 from coletores.bnp_scraper import scrape_bnp
-# Mantém a importação original para o scraper LexML, caso você decida movê-lo também no futuro
+# Mantém a importação original para o scraper LexML
 import requests
 from bs4 import BeautifulSoup
 

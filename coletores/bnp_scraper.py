@@ -4,7 +4,6 @@ import time
 from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service as ChromeService
-from selenium.webdriver.common.by import By
 from selenium.webdriver.chrome.options import Options
 from webdriver_manager.chrome import ChromeDriverManager
 
@@ -21,7 +20,6 @@ def scrape_bnp(termo_de_busca):
     chrome_options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
 
     try:
-        # Usa webdriver-manager para instalar e gerenciar o driver do Chrome automaticamente
         driver = webdriver.Chrome(service=ChromeService(ChromeDriverManager().install()), options=chrome_options)
     except Exception as e:
         print(f"ERRO CRÍTICO: Não foi possível iniciar o WebDriver do Chrome. Verifique a instalação. Erro: {e}")
@@ -32,7 +30,6 @@ def scrape_bnp(termo_de_busca):
         url = f"https://pangeabnp.pdpj.jus.br/precedentes?q={termo_de_busca}"
         driver.get(url)
 
-        # Espera o JavaScript carregar. 10 segundos é um tempo de espera generoso.
         print("Aguardando o carregamento dinâmico da página...")
         time.sleep(10) 
 
@@ -91,3 +88,4 @@ def scrape_bnp(termo_de_busca):
     
     print(f"Scraping do BNP finalizado. Total de documentos coletados: {len(documentos)}")
     return documentos
+
