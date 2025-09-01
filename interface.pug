@@ -9,23 +9,30 @@ html(lang="pt-BR")
       .header { background-color: #fff; padding: 1em 2em; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
       .container { max-width: 900px; margin: auto; padding: 2em; }
       h1 { color: #2c3e50; font-size: 1.5em; }
+      
+      /* Formulário Unificado */
+      form { background-color: #fff; padding: 1.5em; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+
       .search-container { text-align: center; margin-bottom: 1em; }
-      .search-bar form { display: flex; max-width: 800px; margin: auto; gap: 10px; }
+      .search-bar { display: flex; max-width: 800px; margin: auto; gap: 10px; }
       .search-bar input { flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }
       .search-bar button { padding: 12px 20px; border: none; background-color: #3498db; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; }
       .search-bar button:hover { background-color: #2980b9; }
+
       .advanced-search-toggle { text-align: right; max-width: 800px; margin: 1em auto; }
       .advanced-search-toggle label { cursor: pointer; user-select: none; color: #3498db; }
       #toggle-filters { margin-right: 5px; }
-      .filters-box { background-color: #fff; border: 1px solid #e1e8ed; border-radius: 8px; padding: 1.5em; margin-top: 1em; display: none; max-width: 800px; margin-left: auto; margin-right: auto; }
+
+      .filters-box { border-top: 1px solid #eee; padding-top: 1.5em; margin-top: 1.5em; display: none; }
       .filters-box.visible { display: block; }
-      .filters-box h2 { margin-top: 0; color: #2c3e50; }
+      .filters-box h2 { margin-top: 0; color: #2c3e50; font-size: 1.2em; text-align: left; }
       .filter-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1em; }
       .filters-box .form-group { margin-bottom: 1em; text-align: left; }
       .filters-box label { display: block; margin-bottom: 0.5em; font-weight: bold; color: #566573; }
       .filters-box input, .filters-box select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box;}
       .filters-box .year-group { display: flex; gap: 10px; }
-      .content-wrapper { display: flex; gap: 2em; align-items: flex-start; }
+
+      .content-wrapper { display: flex; gap: 2em; align-items: flex-start; margin-top: 2em;}
       .results-column { flex-grow: 1; }
       .result-item { background-color: #fff; border: 1px solid #e1e8ed; border-radius: 8px; margin-bottom: 1.5em; padding: 1.5em; }
       .result-item h3 a { text-decoration: none; color: #1b4f72; font-size: 1.1em;}
@@ -33,11 +40,13 @@ html(lang="pt-BR")
       .result-item dl { margin: 1em 0 0 0; }
       .result-item dt { font-weight: bold; color: #566573; float: left; width: 90px; clear: left; }
       .result-item dd { margin-left: 100px; margin-bottom: 0.5em; }
+
       .pagination { text-align: center; margin: 2em 0; display: flex; justify-content: center; align-items: center; }
       .pagination a, .pagination span { margin: 0 2px; padding: 8px 12px; border: 1px solid #ddd; text-decoration: none; color: #3498db; border-radius: 4px; }
       .pagination a:hover { background-color: #f8f9fa; }
       .pagination span.current { background-color: #3498db; color: white; border-color: #3498db; }
       .pagination span.dots { border: none; padding: 8px 4px;}
+
       .message-box { background-color: #fff; border: 1px solid #e1e8ed; border-radius: 8px; padding: 1.5em; margin-bottom: 1.5em; }
       .message-box.import { background-color: #fff5e6; border-color: #ffcc80; }
       .message-box.error { background-color: #ffebee; border-color: #ef5350; }
@@ -46,6 +55,7 @@ html(lang="pt-BR")
     .header
       h1 iurisadv.ai
     .container
+      //- Formulário único para busca e filtros. Essencial para o funcionamento.
       form(action="/", method="GET")
         .search-container
           .search-bar
@@ -54,7 +64,7 @@ html(lang="pt-BR")
           .advanced-search-toggle
             input#toggle-filters(type="checkbox", onchange="toggleFilters()", checked=show_filters == 'true')
             label(for="toggle-filters") Pesquisa Avançada
-        
+
         .filters-box#filters-box
           h2 Filtros Avançados
           .filter-grid
@@ -86,7 +96,7 @@ html(lang="pt-BR")
           else if trigger_scrape
             .message-box.import
               p
-                strong Nenhum resultado encontrado para "{{ query }}".
+                strong Nenhum resultado encontrado para "#{query}".
               a(href=url_for('importar_lexml', q=query)) Buscar e importar do LexML (a partir de 2015)
           else if total is defined and total is not none and not is_homepage
             .results-info
@@ -115,11 +125,11 @@ html(lang="pt-BR")
                 if result.fonte
                   dt Fonte:
                   dd= result.fonte
-          
+
+          //- Paginação que usa os dados do app.py
           if total_pages and total_pages > 1
             .pagination
-              a(href=url_for('home', q=query, page=1, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters)) &laquo;
-              
+              a(href=url_for('home', q=query, page=1, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters)) «
               each page_num in page_numbers
                 if page_num == '...'
                   span.dots ...
@@ -127,23 +137,19 @@ html(lang="pt-BR")
                   span.current= page_num
                 else
                   a(href=url_for('home', q=query, page=page_num, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters))= page_num
-              
-              a(href=url_for('home', q=query, page=total_pages, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters)) &raquo;
+              a(href=url_for('home', q=query, page=total_pages, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters)) »
 
     script.
       function toggleFilters() {
-          const filtersBox = document.getElementById('filters-box');
-          filtersBox.classList.toggle('visible');
+        const filtersBox = document.getElementById('filters-box');
+        filtersBox.classList.toggle('visible');
       }
-      
+      // Garante que a caixa de filtros permaneça visível após a submissão
       document.addEventListener('DOMContentLoaded', function() {
-          const urlParams = new URLSearchParams(window.location.search);
-          if (urlParams.get('show_filters') === 'true' || 
-              urlParams.get('year_min') || 
-              urlParams.get('year_max') || 
-              (url_for && url_for.get('sort') && url_for.get('sort') !== 'relevance')) {
-              document.getElementById('filters-box').classList.add('visible');
-              document.getElementById('toggle-filters').checked = true;
-          }
+        const urlParams = new URLSearchParams(window.location.search);
+        if (urlParams.get('show_filters') === 'true') {
+          document.getElementById('filters-box').classList.add('visible');
+          document.getElementById('toggle-filters').checked = true;
+        }
       });
 
