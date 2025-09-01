@@ -1,4 +1,4 @@
-'doctype html
+doctype html
 html(lang="pt-BR")
   head
     meta(charset="UTF-8")
@@ -46,7 +46,6 @@ html(lang="pt-BR")
     .header
       h1 iurisadv.ai
     .container
-      //- Formulário Único para busca e filtros. Esta é a correção principal.
       form(action="/", method="GET")
         .search-container
           .search-bar
@@ -71,7 +70,6 @@ html(lang="pt-BR")
                 input(type="number", name="year_min", placeholder="De", value=year_min, min="1900", max="2030")
                 input(type="number", name="year_max", placeholder="Até", value=year_max, min="1900", max="2030")
           
-          //- Este input oculto garante que o estado do filtro (aberto/fechado) seja mantido.
           input(type="hidden", name="show_filters", value="true")
           button(type="submit", style="width: 100%; padding: 12px; border: none; background-color: #27ae60; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; margin-top: 1em;") Aplicar Filtros
 
@@ -118,7 +116,6 @@ html(lang="pt-BR")
                   dt Fonte:
                   dd= result.fonte
           
-          //- PAGINAÇÃO SIMPLIFICADA: Itera sobre a lista 'page_numbers' fornecida pelo app.py
           if total_pages and total_pages > 1
             .pagination
               a(href=url_for('home', q=query, page=1, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters)) &laquo;
@@ -144,10 +141,9 @@ html(lang="pt-BR")
           if (urlParams.get('show_filters') === 'true' || 
               urlParams.get('year_min') || 
               urlParams.get('year_max') || 
-              (urlParams.get('sort') && urlParams.get('sort') !== 'relevance')) {
+              (url_for && url_for.get('sort') && url_for.get('sort') !== 'relevance')) {
               document.getElementById('filters-box').classList.add('visible');
               document.getElementById('toggle-filters').checked = true;
           }
       });
 
-'

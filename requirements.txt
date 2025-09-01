@@ -1,6 +1,6 @@
 # requirements.txt
-beautifulsoup4==4.12.2
-elasticsearch==8.4.2
 Flask==2.3.2
+elasticsearch==8.4.2
+beautifulsoup4==4.12.2
 requests==2.31.0
-pypugjs
+pypugjs==5.9.0
