@@ -1,15 +1,20 @@
-# app.py - VERSÃO EVOLUÍDA COM BUSCA DE JURISPRUDÊNCIA E PRECEDENTES
+# app.py - VERSÃO EVOLUÍDA COM ARQUITETURA DE COLETORES E NOVA UI
 
 import os
 import json
 import time
-import requests
-from bs4 import BeautifulSoup
 from flask import Flask, render_template_string, request, redirect, url_for
 from elasticsearch import Elasticsearch
 from math import ceil
 from datetime import datetime
 import traceback
+
+# Importa o novo scraper
+from coletores.bnp_scraper import scrape_bnp
+# Mantém a importação original para o scraper LexML, caso você decida movê-lo também no futuro
+import requests
+from bs4 import BeautifulSoup
+
 
 app = Flask(__name__)
 INDEX_NAME = 'jurisprudencia'
@@ -17,11 +22,10 @@ RESULTS_PER_PAGE = 10
 
 es = Elasticsearch("http://elasticsearch:9200")
 
-# 1. MAPEAMENTO ATUALIZADO: Adicionamos campos para diferenciar os tipos de documento
 INDEX_MAPPING = {
     "mappings": {
         "properties": {
-            "tipo_documento": {"type": "keyword"}, # 'jurisprudencia' ou 'precedente'
+            "tipo_documento": {"type": "keyword"},
             "data_julgamento": {"type": "text"},
             "ano_julgamento": {"type": "integer"},
             "fonte": {"type": "keyword"},
@@ -32,7 +36,6 @@ INDEX_MAPPING = {
             "texto_decisao": {"type": "text"},
             "link": {"type": "keyword"},
             "id": {"type": "keyword"},
-            # Campos específicos de Precedentes
             "orgaoJulgador": {"type": "keyword"},
             "ramoDireito": {"type": "keyword"},
             "numeroUnico": {"type": "keyword"},
@@ -43,25 +46,20 @@ INDEX_MAPPING = {
 }
 
 def extract_year(date_str):
-    """Tenta extrair o ano de forma segura de uma string de data (DD/MM/YYYY ou YYYY-MM-DD)."""
-    if not date_str or len(date_str.strip()) < 4:
-        return None
+    if not date_str or len(date_str.strip()) < 4: return None
     date_str = date_str.strip()
     try:
         year = int(datetime.strptime(date_str.strip()[:10], '%d/%m/%Y').strftime('%Y'))
         if 1800 < year < 2100: return year
-    except (ValueError, IndexError):
-        pass
+    except (ValueError, IndexError): pass
     try:
         year = int(datetime.strptime(date_str.strip()[:10], '%Y-%m-%d').strftime('%Y'))
         if 1800 < year < 2100: return year
-    except (ValueError, IndexError):
-        pass
+    except (ValueError, IndexError): pass
     print(f"AVISO: Ano não pôde ser extraído da string: '{date_str}'")
     return None
 
 def create_index_if_not_exists():
-    """Cria o índice se não existir"""
     try:
         if not es.indices.exists(index=INDEX_NAME):
             print(f"Índice '{INDEX_NAME}' não encontrado. Criando com o novo mapeamento...")
@@ -84,19 +82,25 @@ INTERFACE_TEMPLATE = """
       h1 { color: #2c3e50; font-size: 1.5em; }
       .search-container { text-align: center; margin-bottom: 1em; }
       form { display: block; }
-      /* Estilos para o novo seletor de tipo de busca */
       .search-type-selector { display: flex; justify-content: center; margin-bottom: 1.5em; background-color: #e9ecef; border-radius: 8px; padding: 5px; max-width: 400px; margin-left: auto; margin-right: auto;}
       .search-type-selector input[type="radio"] { display: none; }
       .search-type-selector label { flex: 1; padding: 10px 15px; text-align: center; cursor: pointer; border-radius: 6px; transition: all 0.2s ease-in-out; font-weight: 500; color: #495057; }
       .search-type-selector input[type="radio"]:checked + label { background-color: #fff; color: #0d6efd; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-      
       .search-bar { display: flex; max-width: 800px; margin: auto; gap: 10px; }
       .search-bar input { flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }
       .search-bar button { padding: 12px 20px; border: none; background-color: #3498db; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; }
       .search-bar button:hover { background-color: #2980b9; }
-      .advanced-search-toggle { text-align: right; max-width: 800px; margin: 1em auto; }
-      .advanced-search-toggle label { cursor: pointer; user-select: none; color: #3498db; }
-      #toggle-filters { margin-right: 5px; }
+      
+      /* NOVO ESTILO PARA O BOTÃO DE FILTROS AVANÇADOS */
+      .advanced-search-toggle { display: flex; justify-content: flex-end; align-items-center; max-width: 800px; margin: 1em auto; gap: 10px; }
+      .advanced-search-toggle label { font-weight: 500; color: #495057; }
+      .toggle-switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+      .toggle-switch input { opacity: 0; width: 0; height: 0; }
+      .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 28px; }
+      .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+      input:checked + .slider { background-color: #2196F3; }
+      input:checked + .slider:before { transform: translateX(22px); }
+
       .filters-box { background-color: #fff; border: 1px solid #e1e8ed; border-radius: 8px; padding: 1.5em; margin-top: 1em; display: none; max-width: 800px; margin-left: auto; margin-right: auto; }
       .filters-box.visible { display: block; }
       .filters-box h2 { margin-top: 0; color: #2c3e50; }
@@ -141,8 +145,11 @@ INTERFACE_TEMPLATE = """
                     <button type="submit">Pesquisar</button>
                 </div>
                 <div class="advanced-search-toggle">
-                    <input type="checkbox" id="toggle-filters" onchange="toggleFilters()" {% if show_filters == 'true' %}checked{% endif %}>
                     <label for="toggle-filters">Pesquisa Avançada</label>
+                    <label class="toggle-switch">
+                        <input type="checkbox" id="toggle-filters" onchange="toggleFilters()" {% if show_filters == 'true' %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
                 </div>
             </div>
 
@@ -260,7 +267,7 @@ def home():
     """Rota principal com pesquisa por tipo, filtros por ano."""
     try:
         query = request.args.get('q', '').strip()
-        search_type = request.args.get('type', 'jurisprudencia') # Novo parâmetro
+        search_type = request.args.get('type', 'jurisprudencia')
         page = request.args.get('page', 1, type=int)
         sort_order = request.args.get('sort', 'relevance')
         year_min = request.args.get('year_min', '')
@@ -278,23 +285,16 @@ def home():
                 is_homepage=False, error=None, trigger_scrape=False
             )
         
-        # Filtro base pelo tipo de documento
         filters_for_es = [{"term": {"tipo_documento.keyword": search_type}}]
         
         year_range_filter = {}
-        if year_min and year_min.isdigit():
-            year_range_filter["gte"] = int(year_min)
-        if year_max and year_max.isdigit():
-            year_range_filter["lte"] = int(year_max)
-        
-        if year_range_filter:
-            filters_for_es.append({"range": {"ano_julgamento": year_range_filter}})
+        if year_min and year_min.isdigit(): year_range_filter["gte"] = int(year_min)
+        if year_max and year_max.isdigit(): year_range_filter["lte"] = int(year_max)
+        if year_range_filter: filters_for_es.append({"range": {"ano_julgamento": year_range_filter}})
 
         sort_query = []
-        if sort_order == 'date_desc':
-            sort_query = [{"ano_julgamento": {"order": "desc", "missing": "_last"}}]
-        elif sort_order == 'date_asc':
-            sort_query = [{"ano_julgamento": {"order": "asc", "missing": "_last"}}]
+        if sort_order == 'date_desc': sort_query = [{"ano_julgamento": {"order": "desc", "missing": "_last"}}]
+        elif sort_order == 'date_asc': sort_query = [{"ano_julgamento": {"order": "asc", "missing": "_last"}}]
         
         is_homepage = not query and not year_min and not year_max and sort_order == 'relevance'
         
@@ -308,23 +308,16 @@ def home():
             must_clause = {"match_all": {}}
             if query:
                 must_clause = {"multi_match": {"query": query, "fields": ["titulo^2", "ementa^1.5", "texto_decisao", "autoridade", "assuntos"], "type": "best_fields", "operator": "or"}}
-            
             search_body["query"] = {"bool": {"must": must_clause, "filter": filters_for_es}}
-            
-            if sort_query:
-                search_body["sort"] = sort_query
+            if sort_query: search_body["sort"] = sort_query
         
         print(f"CONSULTA ELASTICSEARCH:\n{json.dumps(search_body, indent=2, ensure_ascii=False)}\n")
         res = es.search(index=INDEX_NAME, body=search_body)
         
-        results = []
-        for hit in res['hits']['hits']:
-            results.append(hit['_source']) # Adiciona o documento inteiro
-        
+        results = [hit['_source'] for hit in res['hits']['hits']]
         total = res['hits']['total']['value']
         total_pages = ceil(total / RESULTS_PER_PAGE) if not is_homepage else 0
-        if page > total_pages and total_pages > 0:
-            page = total_pages
+        if page > total_pages and total_pages > 0: page = total_pages
         
         page_numbers = get_pagination_range(page, total_pages)
         trigger_scrape = query and total == 0 and not is_homepage
@@ -350,11 +343,8 @@ def home():
         )
 
 def get_pagination_range(current_page, total_pages, window=2):
-    """Gera lista de páginas para paginação com elipses"""
-    if total_pages is None or total_pages <= 1:
-        return []
-    if total_pages <= 7:
-        return list(range(1, total_pages + 1))
+    if total_pages is None or total_pages <= 1: return []
+    if total_pages <= 7: return list(range(1, total_pages + 1))
     pages = [1]
     if current_page > window + 2: pages.append('...')
     start, end = max(2, current_page - window), min(total_pages - 1, current_page + window)
@@ -366,12 +356,10 @@ def get_pagination_range(current_page, total_pages, window=2):
 
 @app.route('/import-json')
 def import_data_from_json():
-    """Importa dados do arquivo JSON local com extração de ano"""
     try:
         create_index_if_not_exists()
         filepath = os.path.join('data', 'jurisprudencias.json')
-        if not os.path.exists(filepath):
-            return "Arquivo jurisprudencias.json não encontrado no diretório data/", 404
+        if not os.path.exists(filepath): return "Arquivo jurisprudencias.json não encontrado no diretório data/", 404
         with open(filepath, 'r', encoding='utf-8') as f:
             jurisprudencias = json.load(f)
         count = 0
@@ -380,13 +368,10 @@ def import_data_from_json():
             if not doc_id: continue
             original_date = doc.get("data_julgamento")
             doc_to_index = {
-                "tipo_documento": "jurisprudencia", "id": doc_id, 
-                "titulo": doc.get("classe", "") + " - " + doc.get("assunto", ""),
-                "classe": doc.get("classe"), "assunto": doc.get("assunto"),
-                "magistrado": doc.get("magistrado"), "comarca": doc.get("comarca"),
-                "data_julgamento": original_date, "ano_julgamento": extract_year(original_date),
-                "ementa": doc.get("ementa"), "texto_decisao": doc.get("inteiro_teor"), 
-                "fonte": "TJSC (Arquivo JSON)", "link": "#", "autoridade": doc.get("magistrado", "")
+                "tipo_documento": "jurisprudencia", "id": doc_id, "titulo": doc.get("classe", "") + " - " + doc.get("assunto", ""),
+                "classe": doc.get("classe"), "assunto": doc.get("assunto"), "magistrado": doc.get("magistrado"), "comarca": doc.get("comarca"),
+                "data_julgamento": original_date, "ano_julgamento": extract_year(original_date), "ementa": doc.get("ementa"),
+                "texto_decisao": doc.get("inteiro_teor"), "fonte": "TJSC (Arquivo JSON)", "link": "#", "autoridade": doc.get("magistrado", "")
             }
             es.index(index=INDEX_NAME, id=doc_id, body=doc_to_index)
             count += 1
@@ -400,11 +385,10 @@ def import_data_from_json():
 
 @app.route('/importar-lexml')
 def importar_lexml():
-    """Importa dados do LexML via scraping com extração de ano"""
-    # Lógica existente... (sem alterações)
     termo_de_busca = request.args.get('q')
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
+        # ... (Lógica do LexML scraper permanece a mesma)
         create_index_if_not_exists()
         total_coletado = 0
         ano_inicial, ano_atual = 2015, datetime.now().year
@@ -457,71 +441,26 @@ def importar_lexml():
         traceback.print_exc()
         return f"Erro durante a coleta: {e}", 500
 
-# 4. NOVA ROTA E FUNÇÃO PARA O SCRAPER DE PRECEDENTES (BNP)
+
 @app.route('/importar-bnp')
 def importar_bnp():
     """Importa dados de Precedentes do Pangea BNP via scraping."""
     termo_de_busca = request.args.get('q')
-    if not termo_de_busca:
-        return "Erro: Nenhum termo de busca fornecido.", 400
+    if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
         create_index_if_not_exists()
         
-        # A URL de busca do Pangea BNP é direta
-        url = f"https://pangeabnp.pdpj.jus.br/precedentes?q={requests.utils.quote(termo_de_busca)}"
-        print(f"Acessando Pangea BNP: {url}")
-        
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'}
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Com base na análise do HTML, os resultados estão em cards
-        resultados = soup.find_all('app-card-precedente-item')
+        # Chama a função do nosso novo módulo coletor
+        documentos = scrape_bnp(termo_de_busca)
         total_coletado = 0
         
-        if not resultados:
-            print("Nenhum precedente encontrado na página do Pangea BNP.")
-        
-        for item in resultados:
-            try:
-                titulo = item.find('h5', class_='card-title').get_text(strip=True) if item.find('h5', class_='card-title') else 'Sem título'
-                link = item.find('a', class_='card-title-link')['href'] if item.find('a', class_='card-title-link') else '#'
-                
-                # Extrai os detalhes de uma lista de definições
-                detalhes = {}
-                for dl_item in item.find_all('dl'):
-                    dt = dl_item.find('dt').get_text(strip=True) if dl_item.find('dt') else ''
-                    dd = dl_item.find('dd').get_text(strip=True) if dl_item.find('dd') else ''
-                    if dt and dd:
-                        detalhes[dt] = dd
-                
-                original_date_str = detalhes.get('Data de Julgamento:', '')
-                doc_id = f"BNP-{detalhes.get('Número Único:', '').strip()}" or f"BNP-{hash(titulo)}"
-
-                documento = {
-                    "tipo_documento": "precedente",
-                    "id": doc_id,
-                    "titulo": titulo,
-                    "link": f"https://pangeabnp.pdpj.jus.br{link}",
-                    "fonte": "Pangea BNP",
-                    "data_julgamento": original_date_str,
-                    "ano_julgamento": extract_year(original_date_str),
-                    "orgaoJulgador": detalhes.get('Órgão Julgador:', ''),
-                    "ramoDireito": detalhes.get('Ramo do Direito:', ''),
-                    "numeroUnico": detalhes.get('Número Único:', ''),
-                    "assuntos": detalhes.get('Assuntos:', ''),
-                    "ementa": item.find('p', class_='card-text').get_text(strip=True) if item.find('p', class_='card-text') else ''
-                }
-                
-                es.index(index=INDEX_NAME, id=doc_id, body=documento)
-                total_coletado += 1
-            except Exception as e:
-                print(f"Erro ao processar item do BNP: {e}")
-        
+        for doc in documentos:
+            doc['ano_julgamento'] = extract_year(doc.get('data_julgamento'))
+            es.index(index=INDEX_NAME, id=doc['id'], body=doc)
+            total_coletado += 1
+            
         es.indices.refresh(index=INDEX_NAME)
-        print(f"Total de precedentes importados do Pangea BNP: {total_coletado}")
+        print(f"Total de precedentes indexados do Pangea BNP: {total_coletado}")
         return redirect(url_for('home', q=termo_de_busca, type='precedente'))
 
     except Exception as e:
@@ -542,9 +481,8 @@ if __name__ == '__main__':
         except Exception as e:
             retry_count += 1
             print(f"Tentativa {retry_count}/{max_retries} - Erro ao conectar ao Elasticsearch: {e}")
-            if retry_count < max_retries:
-                time.sleep(5)
-            else:
-                print("Não foi possível conectar ao Elasticsearch. A aplicação pode não funcionar.")
+            if retry_count < max_retries: time.sleep(5)
+            else: print("Não foi possível conectar ao Elasticsearch. A aplicação pode não funcionar.")
     
     app.run(host='0.0.0.0', port=3000, debug=True)
+
