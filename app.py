@@ -1,4 +1,4 @@
-# app.py - VERSÃO CORRIGIDA COM FILTROS FUNCIONAIS E BUGS RESOLVIDOS
+# app.py - VERSÃO FINAL E FUNCIONAL
 import os
 import json
 import time
@@ -14,7 +14,6 @@ import pypugjs
 # 1. INICIALIZAÇÃO CORRETA DO FLASK
 #    template_folder='.' informa ao Flask para procurar o 'interface.pug' no diretório raiz.
 app = Flask(__name__, template_folder='.')
-app.jinja_env.add_extension('pypugjs.ext.jinja.PyPugJSExtension')
 
 INDEX_NAME = 'jurisprudencia'
 RESULTS_PER_PAGE = 10
@@ -57,8 +56,6 @@ def create_index_if_not_exists():
     try:
         if not es.indices.exists(index=INDEX_NAME):
             print(f"Índice '{INDEX_NAME}' não encontrado. Criando...")
-            # Usando um mapeamento simplificado para evitar problemas,
-            # já que seus indexadores .js lidam com a estrutura.
             es.indices.create(index=INDEX_NAME, ignore=400)
             print(f"Índice '{INDEX_NAME}' criado com sucesso.")
         else:
@@ -66,13 +63,12 @@ def create_index_if_not_exists():
     except Exception as e:
         print(f"Erro ao criar índice: {e}")
 
-# 2. FUNÇÃO 'HOME' ROBUSTA
+
 @app.route('/', endpoint='home')
 def home():
     """Rota principal com pesquisa e filtros, refatorada para maior robustez."""
     context = {
         'query': request.args.get('q', '').strip(),
-        'page': request.args.get('page', 1, type=int),
         'sort_order': request.args.get('sort', 'relevance'),
         'year_min': request.args.get('year_min', ''),
         'year_max': request.args.get('year_max', ''),
@@ -81,6 +77,11 @@ def home():
         'page_numbers': [], 'is_homepage': False, 'needs_import': False,
         'trigger_scrape': False, 'error': None
     }
+    try:
+        context['page'] = int(request.args.get('page', 1))
+    except (ValueError, TypeError):
+        context['page'] = 1
+        
     if context['page'] < 1: context['page'] = 1
     context['current_page'] = context['page']
 
@@ -111,8 +112,11 @@ def home():
                 if context['query']:
                     query_clause = {"multi_match": {"query": context['query'], "fields": ["titulo^2", "ementa^1.5", "texto_decisao", "autoridade"], "type": "best_fields", "operator": "or"}}
                 
-                search_body["query"] = {"bool": {"must": query_clause, "filter": filters_for_es}}
-                
+                if filters_for_es:
+                    search_body["query"] = {"bool": {"must": query_clause, "filter": filters_for_es}}
+                else:
+                    search_body["query"] = query_clause
+
                 if sort_query:
                     search_body["sort"] = sort_query
 
@@ -132,7 +136,6 @@ def home():
             if context['page'] > context['total_pages'] and context['total_pages'] > 0:
                 context['current_page'] = context['total_pages']
             
-            # A chamada para a função que estava faltando
             context['page_numbers'] = get_pagination_range(context['current_page'], context['total_pages'])
             if context['query'] and context['total'] == 0 and not context['is_homepage']:
                 context['trigger_scrape'] = True
@@ -320,8 +323,8 @@ def get_pagination_range(current_page, total_pages, window=2):
     
     return pages
 
+
 if __name__ == '__main__':
-    # Verificar conexão com Elasticsearch
     max_retries = 5
     retry_count = 0
     while retry_count < max_retries:
