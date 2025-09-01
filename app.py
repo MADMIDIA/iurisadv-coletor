@@ -9,11 +9,14 @@ from elasticsearch import Elasticsearch
 from math import ceil
 from datetime import datetime
 import traceback
+# 1. O IMPORT QUE FALTAVA
 import pypugjs
 
 # 1. INICIALIZAÇÃO CORRETA DO FLASK
 #    template_folder='.' informa ao Flask para procurar o 'interface.pug' no diretório raiz.
 app = Flask(__name__, template_folder='.')
+# 3. A "COLA" QUE ATIVA O PROCESSADOR PUG
+app.jinja_env.add_extension('pypugjs.ext.jinja.PyPugJSExtension')
 
 INDEX_NAME = 'jurisprudencia'
 RESULTS_PER_PAGE = 10
@@ -104,10 +107,11 @@ def home():
 
             context['is_homepage'] = not context['query'] and not context['year_min'] and not context['year_max'] and context['sort_order'] == 'relevance'
 
+            search_body = {"from": from_value, "size": RESULTS_PER_PAGE}
+
             if context['is_homepage']:
                 search_body = {"query": {"match_all": {}}, "from": 0, "size": 3, "sort": [{"data_julgamento": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}, {"data": {"order": "desc", "unmapped_type": "date", "missing": "_last"}}]}
             else:
-                search_body = {"from": from_value, "size": RESULTS_PER_PAGE}
                 query_clause = {"match_all": {}}
                 if context['query']:
                     query_clause = {"multi_match": {"query": context['query'], "fields": ["titulo^2", "ementa^1.5", "texto_decisao", "autoridade"], "type": "best_fields", "operator": "or"}}
@@ -119,7 +123,7 @@ def home():
 
                 if sort_query:
                     search_body["sort"] = sort_query
-
+            
             res = es.search(index=INDEX_NAME, body=search_body)
             
             for hit in res['hits']['hits']:
@@ -323,8 +327,8 @@ def get_pagination_range(current_page, total_pages, window=2):
     
     return pages
 
-
 if __name__ == '__main__':
+    # Verificar conexão com Elasticsearch
     max_retries = 5
     retry_count = 0
     while retry_count < max_retries:
