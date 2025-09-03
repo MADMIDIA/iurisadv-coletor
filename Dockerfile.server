@@ -1,47 +1,41 @@
-# Usa uma imagem base Python slim para manter o tamanho baixo
-FROM python:3.9-slim
+# Usa uma imagem base Python que tem um sistema operacional Debian completo
+FROM python:3.9-bookworm
 
-# Define o DEBIAN_FRONTEND para não interativo para evitar prompts durante a instalação
+# Define o DEBIAN_FRONTEND para não interativo
 ENV DEBIAN_FRONTEND=noninteractive
 
-# 1. Instala dependências do sistema, incluindo as necessárias para o Chrome
-RUN apt-get update && apt-get install -y \
-    wget \
-    gnupg \
-    unzip \
-    --no-install-recommends
+# --- Instalação do Node.js e NPM ---
+RUN apt-get update && apt-get install -y curl gnupg \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
 
-# 2. Adiciona o repositório oficial do Google Chrome e instala
+# --- Instalação do Google Chrome e ChromeDriver ---
+RUN apt-get install -y wget unzip jq
 RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
     && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list
-RUN apt-get update && apt-get install -y \
-    google-chrome-stable \
-    --no-install-recommends
-
-# 3. Instala o chromedriver correspondente a uma versão estável conhecida
-RUN wget -O /tmp/chromedriver.zip https://storage.googleapis.com/chrome-for-testing-public/124.0.6367.201/linux64/chromedriver-linux64.zip \
+RUN apt-get update && apt-get install -y google-chrome-stable
+RUN LATEST_STABLE_VERSION=$(wget -qO- https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json | jq -r '.channels.Stable.version') \
+    && DRIVER_URL=$(wget -qO- https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json | jq -r ".channels.Stable.downloads.chromedriver[] | select(.platform==\"linux64\") | .url") \
+    && wget -O /tmp/chromedriver.zip ${DRIVER_URL} \
     && unzip /tmp/chromedriver.zip -d /usr/local/bin/ \
     && rm /tmp/chromedriver.zip \
     && mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
     && rm -rf /usr/local/bin/chromedriver-linux64 \
     && chmod +x /usr/local/bin/chromedriver
 
-# 4. Limpa o cache do apt para reduzir o tamanho da imagem
-RUN rm -rf /var/lib/apt/lists/*
-
-# Define o diretório de trabalho
+# --- Instalação das Dependências ---
 WORKDIR /app
-
-# Copia e instala as dependências do Python
+# Copia e instala primeiro as dependências para aproveitar o cache do Docker
+COPY package*.json ./
+RUN npm install
 COPY requirements.txt requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia o resto dos arquivos da aplicação
 COPY . .
 
-# Expõe a porta do Flask
+# Limpa o cache do apt
+RUN rm -rf /var/lib/apt/lists/*
+
 EXPOSE 3000
-
-# Comando para rodar a aplicação
 CMD ["python", "app.py"]
-

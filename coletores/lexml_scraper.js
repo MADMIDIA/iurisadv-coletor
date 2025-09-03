@@ -1,98 +1,85 @@
-// coletores/lexml_scraper.js - VERSÃO COM PAGINAÇÃO
+// coletores/lexml_scraper.js - Coletor para LexML em Node.js
 
-const fetch = require('node-fetch');
+const axios = require('axios');
 const cheerio = require('cheerio');
-const { Client } = require('@elastic/elasticsearch');
 
-const client = new Client({ node: 'http://elasticsearch:9200' });
-
-// --- NOVA FUNÇÃO: Pausa para sermos educados com o servidor ---
-// Esta função espera um número de milissegundos antes de continuar.
-const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms));
-
-async function rasparLexML() {
-    console.log('Iniciando o scraper do LexML com paginação...');
+async function scrapeLexml(termoDeBusca) {
+    console.error("\n--- INICIANDO SCRAPER LEXML (JS) ---");
+    const documentos = [];
     try {
-        const termoDeBusca = 'dano moral in re ipsa';
-        const tipoDocumento = 'Jurisprudência';
-        let startDoc = 1; // Começamos na primeira página
+        const anoInicial = 2015;
+        const anoAtual = new Date().getFullYear();
+        const keywordComData = `${termoDeBusca};;year=${anoInicial};year-max=${anoAtual}`;
+        let startDoc = 1;
+        const maxDocumentos = 20; // Limite para uma busca rápida
         let continuar = true;
         let totalColetado = 0;
 
-        // Garante que o índice exista antes de começar o loop
-        await client.indices.create({ index: 'jurisprudencia' }, { ignore: [400] });
+        while (continuar && totalColetado < maxDocumentos) {
+            const url = `https://www.lexml.gov.br/busca/search?keyword=${encodeURIComponent(keywordComData)}&f1-tipoDocumento=Jurisprudência&startDoc=${startDoc}`;
+            console.error(`Buscando em: ${url}`);
 
-        // --- O LOOP DE PAGINAÇÃO ---
-        while (continuar) {
-            const url = `https://www.lexml.gov.br/busca/search?keyword=${encodeURIComponent(termoDeBusca)}&f1-tipoDocumento=${encodeURIComponent(tipoDocumento)}&startDoc=${startDoc}`;
-            
-            console.log(`Acessando página com startDoc=${startDoc}... URL: ${url}`);
+            const response = await axios.get(url, { headers: { 'User-Agent': 'Mozilla/5.0' } });
+            console.error(`Status da resposta: ${response.status}`);
 
-            const response = await fetch(url, {
-                headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36' }
-            });
+            const $ = cheerio.load(response.data);
+            const resultados = $('div.docHit');
+            console.error(`Encontrados ${resultados.length} resultados nesta página.`);
 
-            if (!response.ok) {
-                console.log(`Erro ao buscar a página ${startDoc}. Parando.`);
-                break;
-            }
+            if (resultados.length === 0) break;
 
-            const html = await response.text();
-            const $ = cheerio.load(html);
+            resultados.each((i, item) => {
+                const tituloTd = $(item).find('td:contains("Título")');
+                const urnTd = $(item).find('td:contains("URN")');
+                if (!tituloTd.length || !urnTd.length) return;
 
-            const resultadosDaPagina = [];
-            $('div.docHit').each((index, element) => {
-                const item = $(element);
-                const titulo = item.find('td:contains("Título")').next('td.col3').find('a').text().trim();
-                const link = item.find('td:contains("Título")').next('td.col3').find('a').attr('href');
-                const data = item.find('td:contains("Data")').next('td.col3').text().trim();
-                const ementa = item.find('td:contains("Ementa")').next('td.col3').text().trim().replace(/\s+/g, ' ');
-                const urn = item.find('td:contains("URN")').next('td.col3').text().trim();
-
-                if (urn && titulo) {
-                    resultadosDaPagina.push({
-                        id: urn,
-                        titulo: titulo,
-                        data: data,
-                        ementa: ementa,
-                        link: `https://www.lexml.gov.br${link}`,
-                        fonte: 'LexML (Scraper)'
-                    });
-                }
-            });
-
-            if (resultadosDaPagina.length === 0) {
-                console.log('Nenhum resultado encontrado nesta página. Finalizando a coleta.');
-                continuar = false;
-            } else {
-                for (const doc of resultadosDaPagina) {
-                    await client.index({
-                        index: 'jurisprudencia',
-                        id: doc.id,
-                        body: doc
-                    });
-                }
-                totalColetado += resultadosDaPagina.length;
-                console.log(`    -> Indexados ${resultadosDaPagina.length} documentos desta página. Total: ${totalColetado}`);
+                const docId = urnTd.next('td').text().trim();
+                const tituloLinkTag = tituloTd.next('td').find('a');
+                if (!docId || !tituloLinkTag.length) return;
                 
-                // --- VERIFICA SE HÁ UMA PRÓXIMA PÁGINA ---
-                const linkProxima = $('a').filter((i, el) => $(el).text().trim() === 'Próxima').first();
-                if (linkProxima.length > 0) {
-                    startDoc += 20; // Prepara para a próxima iteração
-                    await sleep(1000); // Espera 1 segundo antes de buscar a próxima página
-                } else {
-                    console.log('Fim dos resultados. Não há mais link "Próxima".');
-                    continuar = false;
-                }
+                const dataTd = $(item).find('td:contains("Data")');
+                const autoridadeTd = $(item).find('td:contains("Autoridade")');
+                const ementaTd = $(item).find('td:contains("Ementa")');
+                
+                const documento = {
+                    tipo_documento: "jurisprudencia",
+                    id: docId,
+                    titulo: tituloLinkTag.text().trim(),
+                    ementa: ementaTd.length ? ementaTd.next('td').text().trim() : '',
+                    data_julgamento: dataTd.length ? dataTd.next('td').text().trim() : '',
+                    autoridade: autoridadeTd.length ? autoridadeTd.next('td').text().trim() : '',
+                    link: `https://www.lexml.gov.br${tituloLinkTag.attr('href')}`,
+                    fonte: "LexML"
+                };
+                documentos.push(documento);
+                totalColetado++;
+            });
+
+            const linkProxima = $('a').filter((i, el) => $(el).text().trim() === 'Próxima');
+            if (linkProxima.length > 0 && totalColetado < maxDocumentos) {
+                startDoc += 20;
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            } else {
+                continuar = false;
             }
         }
-        
-        console.log('--- VITÓRIA COMPLETA! ---');
-        console.log(`Scraping e indexação de todas as páginas finalizados. Total de ${totalColetado} documentos coletados.`);
+        console.error(`--- SCRAPER LEXML (JS) FINALIZADO --- Total coletado: ${totalColetado}`);
+        // Imprime o JSON para o stdout, que será capturado pelo Python
+        console.log(JSON.stringify(documentos));
 
     } catch (error) {
-        console.error('Ocorreu um erro fatal durante o scraping:', error);
+        console.error(`Erro GERAL durante importação do LexML (JS): ${error.message}`);
+        // Imprime um array vazio em caso de erro
+        console.log(JSON.stringify([]));
     }
 }
 
-rasparLexML();
+// Executa a função se o script for chamado diretamente
+if (require.main === module) {
+    const termo = process.argv[2]; // Pega o termo de busca dos argumentos da linha de comando
+    if (!termo) {
+        console.error("Erro: Nenhum termo de busca fornecido.");
+        process.exit(1);
+    }
+    scrapeLexml(termo);
+}

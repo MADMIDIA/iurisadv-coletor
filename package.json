@@ -1,22 +1,16 @@
 {
-  "name": "ecli-indexer",
+  "name": "iurisadv-coletores",
   "version": "1.0.0",
-  "description": "",
+  "description": "Scrapers para o projeto iurisadv-coletor",
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "Diogo Almiro",
+  "author": "Marco Antonio - iurisadv.ai",
   "license": "ISC",
   "dependencies": {
-    "@elastic/elasticsearch": "^8.0.0",
-    "cheerio": "^1.1.2",
-    "csv-parser": "^3.0.0",
-    "express": "^4.17.3",
-    "fast-xml-parser": "^5.2.5",
-    "jsdom": "^19.0.0",
-    "node-fetch": "^2.7.0",
-    "pug": "^3.0.2"
+    "axios": "^1.7.2",
+    "cheerio": "^1.0.0-rc.12",
+    "selenium-webdriver": "^4.21.0"
   }
 }

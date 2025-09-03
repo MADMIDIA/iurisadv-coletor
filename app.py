@@ -1,24 +1,22 @@
-# app.py - VERSÃO EVOLUÍDA COM MELHOR LOGGING NOS SCRAPERS
+# app.py - VERSÃO FINAL, HÍBRIDA E ESTÁVEL
 
 import os
 import json
 import time
+import subprocess # Módulo para executar processos externos (nossos scrapers .js)
 from flask import Flask, render_template_string, request, redirect, url_for
 from elasticsearch import Elasticsearch
 from math import ceil
 from datetime import datetime
 import traceback
 
-from coletores.bnp_scraper import scrape_bnp
-import requests
-from bs4 import BeautifulSoup
-
 app = Flask(__name__)
 INDEX_NAME = 'jurisprudencia'
 RESULTS_PER_PAGE = 10
 es = Elasticsearch("http://elasticsearch:9200")
 
-# ... (O restante do seu INDEX_MAPPING, extract_year, create_index_if_not_exists e INTERFACE_TEMPLATE permanecem os mesmos)
+# ... (Todo o resto do seu app.py: INDEX_MAPPING, extract_year, create_index_if_not_exists, INTERFACE_TEMPLATE, home, get_pagination_range, import_data_from_json)
+# A única mudança real é DENTRO das rotas de importação, que agora chamam os módulos.
 INDEX_MAPPING = {
     "mappings": {
         "properties": {
@@ -223,7 +221,7 @@ INTERFACE_TEMPLATE = """
                             <a href="{{ url_for('home', q=query, type=search_type, page=page_num, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">{{ page_num }}</a>
                         {% endif %}
                     {% endfor %}
-                    <a href="{{ url_for('home', q=query, type=search_type, page=total_pages, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">&raquo;</a>
+                    <a href="{{ url_for('home', q=query, type=search_type, page=total_pages, sort=sort_order, year_min=year_min, year_max=year_max, show_filters=show_filters) }}">&laquo;</a>
                 </div>
                 {% endif %}
             </div>
@@ -358,73 +356,53 @@ def import_data_from_json():
 
 @app.route('/importar-lexml')
 def importar_lexml():
+    """Chama o scraper do LexML e indexa os resultados."""
     termo_de_busca = request.args.get('q')
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
-        print("\n--- INICIANDO SCRAPER LEXML ---")
         create_index_if_not_exists()
+        # Executa o script Node.js como um subprocesso
+        process = subprocess.run(
+            ['node', 'coletores/lexml_scraper.js', termo_de_busca],
+            capture_output=True, text=True, check=True
+        )
+        # A saída do script (JSON) é capturada do stdout
+        documentos = json.loads(process.stdout)
+        
         total_coletado = 0
-        ano_inicial, ano_atual = 2015, datetime.now().year
-        keyword_com_data = f"{termo_de_busca};;year={ano_inicial};year-max={ano_atual}"
-        start_doc = 1
-        max_documentos = 100
-        continuar = True
-        while continuar and total_coletado < max_documentos:
-            url = f"https://www.lexml.gov.br/busca/search?keyword={keyword_com_data}&f1-tipoDocumento=Jurisprudência&startDoc={start_doc}"
-            print(f"Buscando em: {url}")
-            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=30)
-            print(f"Status da resposta: {response.status_code}")
-            response.raise_for_status()
-            soup = BeautifulSoup(response.text, 'html.parser')
-            resultados = soup.find_all('div', class_='docHit')
-            print(f"Encontrados {len(resultados)} resultados nesta página.")
-            if not resultados: break
-            for item in resultados:
-                try:
-                    titulo_tag = item.find(lambda t: t.name == 'td' and 'Título' in t.text)
-                    urn_tag = item.find(lambda t: t.name == 'td' and 'URN' in t.text)
-                    if not (titulo_tag and urn_tag): continue
-                    doc_id = urn_tag.find_next_sibling('td').text.strip()
-                    titulo_link = titulo_tag.find_next_sibling('td').find('a')
-                    if not (doc_id and titulo_link): continue
-                    data_tag = item.find(lambda t: t.name == 'td' and 'Data' in t.text)
-                    autoridade_tag = item.find(lambda t: t.name == 'td' and 'Autoridade' in t.text)
-                    ementa_tag = item.find(lambda t: t.name == 'td' and 'Ementa' in t.text)
-                    original_date_str = data_tag.find_next_sibling('td').text.strip() if data_tag else ''
-                    documento = {
-                        "tipo_documento": "jurisprudencia", "id": doc_id, "titulo": titulo_link.text.strip(),
-                        "ementa": ementa_tag.find_next_sibling('td').text.strip() if ementa_tag else '',
-                        "data_julgamento": original_date_str, "ano_julgamento": extract_year(original_date_str),
-                        "autoridade": autoridade_tag.find_next_sibling('td').text.strip() if autoridade_tag else '',
-                        "link": f"https://www.lexml.gov.br{titulo_link['href']}", "fonte": "LexML",
-                        "texto_decisao": "", "classe": "", "assunto": ""
-                    }
-                    es.index(index=INDEX_NAME, id=doc_id, body=documento)
-                    total_coletado += 1
-                except Exception as e:
-                    print(f"Erro ao processar item do LexML: {e}")
-            link_proxima = soup.find('a', string=lambda text: text and 'Próxima' in text.strip())
-            if link_proxima and total_coletado < max_documentos:
-                start_doc += 20
-                time.sleep(1)
-            else:
-                continuar = False
+        for doc in documentos:
+            doc['ano_julgamento'] = extract_year(doc.get('data_julgamento'))
+            es.index(index=INDEX_NAME, id=doc['id'], body=doc)
+            total_coletado += 1
         es.indices.refresh(index=INDEX_NAME)
-        print(f"--- SCRAPER LEXML FINALIZADO --- Total importado: {total_coletado}")
+        print(f"Total de jurisprudências indexadas do LexML: {total_coletado}")
         return redirect(url_for('home', q=termo_de_busca, type='jurisprudencia'))
+    except subprocess.CalledProcessError as e:
+        print(f"ERRO ao executar o scraper LexML: {e.stderr}")
+        return f"Erro no scraper: {e.stderr}", 500
+    except json.JSONDecodeError as e:
+        print(f"ERRO ao decodificar a saída do scraper LexML: {e}")
+        return "Erro ao processar dados do scraper.", 500
     except Exception as e:
-        print(f"Erro GERAL durante importação do LexML: {e}")
+        print(f"Erro na rota de importação do LexML: {e}")
         traceback.print_exc()
         return f"Erro durante a coleta: {e}", 500
 
 @app.route('/importar-bnp')
 def importar_bnp():
-    """Importa dados de Precedentes do Pangea BNP via scraping."""
+    """Chama o scraper do BNP e indexa os resultados."""
     termo_de_busca = request.args.get('q')
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
         create_index_if_not_exists()
-        documentos = scrape_bnp(termo_de_busca)
+        # Executa o script Node.js como um subprocesso
+        process = subprocess.run(
+            ['node', 'coletores/bnp_scraper.js', termo_de_busca],
+            capture_output=True, text=True, check=True
+        )
+        # A saída do script (JSON) é capturada do stdout
+        documentos = json.loads(process.stdout)
+
         total_coletado = 0
         for doc in documentos:
             doc['ano_julgamento'] = extract_year(doc.get('data_julgamento'))
@@ -433,8 +411,14 @@ def importar_bnp():
         es.indices.refresh(index=INDEX_NAME)
         print(f"Total de precedentes indexados do Pangea BNP: {total_coletado}")
         return redirect(url_for('home', q=termo_de_busca, type='precedente'))
+    except subprocess.CalledProcessError as e:
+        print(f"ERRO ao executar o scraper BNP: {e.stderr}")
+        return f"Erro no scraper: {e.stderr}", 500
+    except json.JSONDecodeError as e:
+        print(f"ERRO ao decodificar a saída do scraper BNP: {e}")
+        return "Erro ao processar dados do scraper.", 500
     except Exception as e:
-        print(f"Erro durante importação do Pangea BNP: {e}")
+        print(f"Erro na rota de importação do BNP: {e}")
         traceback.print_exc()
         return f"Erro durante a coleta do Pangea BNP: {e}", 500
 
