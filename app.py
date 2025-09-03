@@ -87,7 +87,7 @@ INTERFACE_TEMPLATE = """
       .search-bar input { flex-grow: 1; padding: 12px; border: 1px solid #ddd; border-radius: 4px; font-size: 1em; }
       .search-bar button { padding: 12px 20px; border: none; background-color: #3498db; color: white; border-radius: 4px; font-size: 1em; cursor: pointer; }
       .search-bar button:hover { background-color: #2980b9; }
-      .advanced-search-toggle { display: flex; justify-content: flex-end; align-items-center; max-width: 800px; margin: 1em auto; gap: 10px; }
+      .advanced-search-toggle { display: flex; justify-content: flex-end; align-items: center; max-width: 800px; margin: 1em auto; gap: 10px; }
       .advanced-search-toggle label { font-weight: 500; color: #495057; }
       .toggle-switch { position: relative; display: inline-block; width: 50px; height: 28px; }
       .toggle-switch input { opacity: 0; width: 0; height: 0; }
