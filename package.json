@@ -2,12 +2,6 @@
   "name": "iurisadv-coletores",
   "version": "1.0.0",
   "description": "Scrapers para o projeto iurisadv-coletor",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "Marco Antonio - iurisadv.ai",
-  "license": "ISC",
   "dependencies": {
     "axios": "^1.7.2",
     "cheerio": "^1.0.0-rc.12",

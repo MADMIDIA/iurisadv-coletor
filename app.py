@@ -361,12 +361,10 @@ def importar_lexml():
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
         create_index_if_not_exists()
-        # Executa o script Node.js como um subprocesso
         process = subprocess.run(
             ['node', 'coletores/lexml_scraper.js', termo_de_busca],
-            capture_output=True, text=True, check=True
+            capture_output=True, text=True, check=True, encoding='utf-8'
         )
-        # A saída do script (JSON) é capturada do stdout
         documentos = json.loads(process.stdout)
         
         total_coletado = 0
@@ -395,12 +393,10 @@ def importar_bnp():
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
         create_index_if_not_exists()
-        # Executa o script Node.js como um subprocesso
         process = subprocess.run(
             ['node', 'coletores/bnp_scraper.js', termo_de_busca],
-            capture_output=True, text=True, check=True
+            capture_output=True, text=True, check=True, encoding='utf-8'
         )
-        # A saída do script (JSON) é capturada do stdout
         documentos = json.loads(process.stdout)
 
         total_coletado = 0
