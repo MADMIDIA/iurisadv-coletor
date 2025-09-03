@@ -1,14 +1,17 @@
-# app.py - VERSÃO FINAL, HÍBRIDA E ESTÁVEL
+# app.py - VERSÃO FINAL, 100% PYTHON, MODULARIZADA E ESTÁVEL
 
 import os
 import json
 import time
-import subprocess # Módulo para executar processos externos (nossos scrapers .js)
 from flask import Flask, render_template_string, request, redirect, url_for
 from elasticsearch import Elasticsearch
 from math import ceil
 from datetime import datetime
 import traceback
+
+# Importa os nossos scrapers Python modulares
+from coletores.lexml_scraper import scrape_lexml
+from coletores.bnp_scraper import scrape_bnp
 
 app = Flask(__name__)
 INDEX_NAME = 'jurisprudencia'
@@ -16,7 +19,7 @@ RESULTS_PER_PAGE = 10
 es = Elasticsearch("http://elasticsearch:9200")
 
 # ... (Todo o resto do seu app.py: INDEX_MAPPING, extract_year, create_index_if_not_exists, INTERFACE_TEMPLATE, home, get_pagination_range, import_data_from_json)
-# A única mudança real é DENTRO das rotas de importação, que agora chamam os módulos.
+# A única mudança real é DENTRO das rotas de importação, que agora chamam os módulos Python.
 INDEX_MAPPING = {
     "mappings": {
         "properties": {
@@ -361,12 +364,7 @@ def importar_lexml():
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
         create_index_if_not_exists()
-        process = subprocess.run(
-            ['node', 'coletores/lexml_scraper.js', termo_de_busca],
-            capture_output=True, text=True, check=True, encoding='utf-8'
-        )
-        documentos = json.loads(process.stdout)
-        
+        documentos = scrape_lexml(termo_de_busca)
         total_coletado = 0
         for doc in documentos:
             doc['ano_julgamento'] = extract_year(doc.get('data_julgamento'))
@@ -375,12 +373,6 @@ def importar_lexml():
         es.indices.refresh(index=INDEX_NAME)
         print(f"Total de jurisprudências indexadas do LexML: {total_coletado}")
         return redirect(url_for('home', q=termo_de_busca, type='jurisprudencia'))
-    except subprocess.CalledProcessError as e:
-        print(f"ERRO ao executar o scraper LexML: {e.stderr}")
-        return f"Erro no scraper: {e.stderr}", 500
-    except json.JSONDecodeError as e:
-        print(f"ERRO ao decodificar a saída do scraper LexML: {e}")
-        return "Erro ao processar dados do scraper.", 500
     except Exception as e:
         print(f"Erro na rota de importação do LexML: {e}")
         traceback.print_exc()
@@ -393,12 +385,7 @@ def importar_bnp():
     if not termo_de_busca: return "Erro: Nenhum termo de busca fornecido.", 400
     try:
         create_index_if_not_exists()
-        process = subprocess.run(
-            ['node', 'coletores/bnp_scraper.js', termo_de_busca],
-            capture_output=True, text=True, check=True, encoding='utf-8'
-        )
-        documentos = json.loads(process.stdout)
-
+        documentos = scrape_bnp(termo_de_busca)
         total_coletado = 0
         for doc in documentos:
             doc['ano_julgamento'] = extract_year(doc.get('data_julgamento'))
@@ -407,12 +394,6 @@ def importar_bnp():
         es.indices.refresh(index=INDEX_NAME)
         print(f"Total de precedentes indexados do Pangea BNP: {total_coletado}")
         return redirect(url_for('home', q=termo_de_busca, type='precedente'))
-    except subprocess.CalledProcessError as e:
-        print(f"ERRO ao executar o scraper BNP: {e.stderr}")
-        return f"Erro no scraper: {e.stderr}", 500
-    except json.JSONDecodeError as e:
-        print(f"ERRO ao decodificar a saída do scraper BNP: {e}")
-        return "Erro ao processar dados do scraper.", 500
     except Exception as e:
         print(f"Erro na rota de importação do BNP: {e}")
         traceback.print_exc()
@@ -434,3 +415,4 @@ if __name__ == '__main__':
             else: print("Não foi possível conectar ao Elasticsearch. A aplicação pode não funcionar.")
     
     app.run(host='0.0.0.0', port=3000, debug=True)
+
