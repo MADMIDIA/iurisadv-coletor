@@ -1,20 +1,30 @@
-# Usa uma imagem base Python slim
+# Usa uma imagem base Python slim para manter o tamanho baixo
 FROM python:3.9-slim
 
-# 1. Instala dependências do sistema necessárias para o Google Chrome e o WebDriver
+# Define o DEBIAN_FRONTEND para não interativo para evitar prompts durante a instalação
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 1. Instala dependências do sistema, incluindo as necessárias para o Chrome
 RUN apt-get update && apt-get install -y \
     wget \
     gnupg \
+    unzip \
     --no-install-recommends
 
-# 2. Adiciona o repositório oficial do Google Chrome
+# 2. Adiciona o repositório oficial do Google Chrome e instala
 RUN wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
     && echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google-chrome.list
-
-# 3. Instala a versão estável do Google Chrome
 RUN apt-get update && apt-get install -y \
     google-chrome-stable \
     --no-install-recommends
+
+# 3. Instala o chromedriver correspondente a uma versão estável conhecida
+RUN wget -O /tmp/chromedriver.zip https://storage.googleapis.com/chrome-for-testing-public/124.0.6367.201/linux64/chromedriver-linux64.zip \
+    && unzip /tmp/chromedriver.zip -d /usr/local/bin/ \
+    && rm /tmp/chromedriver.zip \
+    && mv /usr/local/bin/chromedriver-linux64/chromedriver /usr/local/bin/chromedriver \
+    && rm -rf /usr/local/bin/chromedriver-linux64 \
+    && chmod +x /usr/local/bin/chromedriver
 
 # 4. Limpa o cache do apt para reduzir o tamanho da imagem
 RUN rm -rf /var/lib/apt/lists/*
@@ -22,17 +32,16 @@ RUN rm -rf /var/lib/apt/lists/*
 # Define o diretório de trabalho
 WORKDIR /app
 
-# Copia o arquivo de dependências
+# Copia e instala as dependências do Python
 COPY requirements.txt requirements.txt
-
-# Instala as dependências do Python
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copia o resto dos arquivos da aplicação
 COPY . .
 
-# Expõe a porta que o Flask vai rodar
+# Expõe a porta do Flask
 EXPOSE 3000
 
 # Comando para rodar a aplicação
 CMD ["python", "app.py"]
+
